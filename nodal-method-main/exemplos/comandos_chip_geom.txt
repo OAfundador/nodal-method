@@ -1,0 +1,48 @@
+# Comandos para reproduzir o Exemplo 1 do Cap. V do livro (componente
+# eletrônico, 12 pernas de cobre + componente em silício) usando o caminho
+# Geometry2D do framework.
+#
+# Para executar:
+#     python exemplos/exemplo_chip_interativo.py --script exemplos/comandos_chip_geom.txt
+#
+# Mais detalhes (calibração da k_eff, hipóteses): exemplos/exemplo_chip_geom.py
+#
+# Calibração: a camada das pernas usa k_eff = 3.979 W/(m·K), calculado de
+#   k_eff = G_pernas · L / (W · t_z)
+#   G_pernas = 12 · 380 · π · (0.5e-3)² / 0.020 = 0.179 W/K
+#   k_eff = 0.179 · 0.020 / (0.030 · 0.030) = 3.979 W/(m·K)
+
+# --- Passo 1: domínio físico (vista lateral 30 × 30 mm) ---
+domain W=0.030 H=0.030
+
+# --- Passo 2a: definição de áreas com material ---
+# camada inferior (y=0..20mm): pernas + ar agregadas com k_eff
+region camada_pernas k=3.979 x0=0.0 x1=0.030 y0=0.0   y1=0.020
+# camada superior (y=20..30mm): componente em silício
+region componente   k=150   x0=0.0 x1=0.030 y0=0.020 y1=0.030
+
+# --- Passo 2b: fonte volumétrica no componente ---
+# q''' = Q_total / V_componente = 4 / (30 × 30 × 10 mm) = 4.444e5 W/m³
+source componente q=4.444e5
+
+# --- Passo 2c: condições de contorno ---
+bc bottom temperature T=44
+bc left   adiabatic
+bc right  adiabatic
+bc top    adiabatic
+# OBS: para o item (b), troque a linha acima por:
+#   bc top convection h=30 T_inf=20
+
+# --- Passo 1 (refinamento): malha ---
+mesh nx=12 ny=12 fix=auto
+
+# --- Resumo da geometria ---
+show_geom
+
+# --- Passos 3 e 4: rede nodal automática ---
+build_from_geom tz=0.030
+
+# --- Passo 5: resolução ---
+solve
+# Resultado esperado item (a): T_max ≈ 66.5 °C, T_med ≈ 66.4 °C
+# (lumped: 66.34 °C, livro: 66.3 °C)

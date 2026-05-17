@@ -1,0 +1,41 @@
+EC tipo placa — Método Nodal (DIDÁTICO, dados mockados)
+
+Caso = cos
+Modo de fluxo = cos
+N axial = 40
+Vazão por canal = 3.0000e-04 m³/s
+m_dot por canal = 2.9870e-01 kg/s
+
+Geometria (dados didáticos):
+  comprimento ativo Lx = 500.0 mm
+  largura cerne Ly     = 60.0 mm
+  espessura combust.   = 1.00 mm
+  espessura clad       = 0.50 mm
+  canal interno        = 3.00 × 65.0 mm
+  Dh                   = 5.735 mm
+
+Rede nodal:
+  n nós   = 361
+  n links = 360
+
+Solver:
+  success        = True
+  residual_norm  = 4.107e-11
+  iterações      = 2
+
+Potência:
+  P_placa configurada = 5000.00 W
+  Potência integrada  = 5000.00 W
+
+Temperaturas:
+  T_fluido_entrada    = 30.00 °C
+  T_fluido_saida      = 34.04 °C
+  T_superficie_max    = 43.34 °C
+  T_revestimento_max  = 43.47 °C
+  T_interface_max     = 43.59 °C
+  T_combustivel_max   = 44.10 °C
+  margem T_sat-T_ch (min) = 75.23 °C
+
+Hidráulica:
+  Re_min, Re_max = 11038.6, 11990.5
+  h_min, h_max   = 8270.1, 8592.6 W/m²K

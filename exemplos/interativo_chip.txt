@@ -1,0 +1,66 @@
+# ============================================================
+# CHIP ELETRONICO — explicacao dos comandos
+# ============================================================
+#
+# material silicio / material pernas_cobre
+#   Define os materiais com suas propriedades (k, rho, cp).
+#   pernas_cobre usa k_eff = G*L/(W*t) = 3.979 W/mK pois a geometria
+#   e plana — as 12 pernas de cobre viram uma camada equivalente.
+#
+# domain W=0.030 H=0.030
+#   Cria o dominio fisico: 30mm x 30mm (vista lateral do chip).
+#
+# region camada_pernas mat=pernas_cobre x0=0.0 x1=0.030 y0=0.000 y1=0.020
+#   Regiao inferior (0 a 20mm): camada das pernas com k_eff.
+#
+# region componente mat=silicio x0=0.0 x1=0.030 y0=0.020 y1=0.030
+#   Regiao superior (20 a 30mm): corpo do componente em silicio.
+#
+# source componente q=4.444e5
+#   Aplica fonte volumetrica no componente:
+#   q''' = Q/V = 4 / (0.030 * 0.030 * 0.030) = 4.444e5 W/m3
+#
+# bc bottom temperature T=44
+#   Face inferior fixada em 44 C (base da placa de circuito).
+#
+# bc left adiabatic / bc right adiabatic / bc top adiabatic
+#   Demais faces sem fluxo de calor (simetria e isolamento).
+#
+# mesh nx=12 ny=12 fix=auto
+#   Discretiza em 12x12 volumes. fix=auto alinha a malha com as
+#   bordas das regioes automaticamente.
+#
+# show_geom
+#   Exibe resumo do dominio, regioes, BCs e malha montada.
+#
+# build_from_geom tz=0.030
+#   Constroi a NodalNetwork automaticamente.
+#   tz=0.030 e a espessura na direcao z (profundidade = 30mm).
+#
+# solve
+#   Resolve o sistema (Newton-Raphson, regime permanente).
+#   Resultado esperado: T_max ~ 66.4 C (item a)
+#
+# viz / gif
+#   Gera imagem PNG e GIF animado da rede nodal.
+#
+# ============================================================
+# SEQUENCIA DE COMANDOS — cole um por um no prompt >>>
+# ============================================================
+
+material silicio k=150 rho=2330 cp=712
+material pernas_cobre k=3.979
+domain W=0.030 H=0.030
+region camada_pernas mat=pernas_cobre x0=0.0 x1=0.030 y0=0.000 y1=0.020
+region componente mat=silicio x0=0.0 x1=0.030 y0=0.020 y1=0.030
+source componente q=4.444e5
+bc bottom temperature T=44
+bc left adiabatic
+bc right adiabatic
+bc top adiabatic
+mesh nx=12 ny=12 fix=auto
+show_geom
+build_from_geom tz=0.030
+solve
+viz png=saidas/chip_rede.png titulo=Chip_eletronico
+gif gif=saidas/chip.gif fps=8 steps=35 titulo=Chip_eletronico

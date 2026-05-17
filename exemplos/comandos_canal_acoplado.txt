@@ -1,0 +1,100 @@
+# comandos_canal_acoplado.txt
+#
+# Exemplo: DOIS canais acoplados por uma placa combustivel (mini-reator)
+# Versao simplificada com 3 segmentos axiais - construcao generica node a node.
+#
+# Layout transversal por camada axial (j=1,2,3):
+#
+#   [CL_esq_j] <-conv-> [Ts_esq_j] <-cond-> [Tf_j(Q)] <-cond-> [Ts_dir_j] <-conv-> [CL_dir_j]
+#
+# Parametros:
+#   n_axial  = 3
+#   Q_total  = 500 W  -> Q por no = 500/3 = 166.7 W
+#   G_cond (placa-cladding): k_uo2=3.6, A=Lx*dz, L=df/2  -> veja g_cond abaixo
+#   G_conv  (cladding-canal): h=2e4 W/(m2K), A=Lx*dz      -> veja g_conv abaixo
+#   G_fluid = mdot*cp = (rho*vazao)*cp = (997*3e-4)*4182 = 1250 W/K
+#   Geometria: Lx=0.5m, dz=Lcanal/3=0.065/3=0.02167m
+#              df=1e-3, dcl=0.5e-3
+#
+# Para executar:
+#   python exemplos/exemplo_chip_interativo.py --script exemplos/comandos_canal_acoplado.txt
+#
+# NOTA: para o caso completo (n_axial=40, geometria real, modo cos/constante),
+#       use os comandos reator_* que ja encapsulam tudo:
+#         reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=cos T_in=30 P_in=150000 dP=10000
+#         reator_solve
+#         reator_show
+
+# ============================================================
+# Materiais e condutancias
+# ============================================================
+material uo2   k=3.6   rho=10970 cp=247
+material zr    k=21.0  rho=6510  cp=278
+material agua  phase=fluid k=0.6 rho=997 cp=4182 mu=8.9e-4
+
+# G_cond combustivel->cladding: k_uo2, A=Lx*dz=0.5*0.02167, L=df/2=5e-4
+g_cond k=3.6   A=0.010833 L=5.0e-4
+
+# G_cond cladding->canal: k_zr, A=Lx*dz, L=dcl/2=2.5e-4
+g_cond k=21.0  A=0.010833 L=2.5e-4
+
+# G_conv canal: h*A = 2e4 * Lx*dz = 2e4 * 0.010833
+g_conv h=20000 A=0.010833
+
+# ============================================================
+# CAMADA 1  (j=1, entrada do canal)
+# ============================================================
+node Tf1   diffusion Q=166.7 T_init=30
+node Ts_e1 diffusion T_init=30
+node Ts_d1 diffusion T_init=30
+node Cl_e1 fluid     T_init=30
+node Cl_d1 fluid     T_init=30
+
+link Tf1   Ts_e1 cond G=77.99
+link Tf1   Ts_d1 cond G=77.99
+link Ts_e1 Cl_e1 conv G=216.67
+link Ts_d1 Cl_d1 conv G=216.67
+
+# ============================================================
+# CAMADA 2  (j=2, meio do canal)
+# ============================================================
+node Tf2   diffusion Q=166.7 T_init=30
+node Ts_e2 diffusion T_init=30
+node Ts_d2 diffusion T_init=30
+node Cl_e2 fluid     T_init=30
+node Cl_d2 fluid     T_init=30
+
+link Tf2   Ts_e2 cond G=77.99
+link Tf2   Ts_d2 cond G=77.99
+link Ts_e2 Cl_e2 conv G=216.67
+link Ts_d2 Cl_d2 conv G=216.67
+
+# ============================================================
+# CAMADA 3  (j=3, saida do canal)
+# ============================================================
+node Tf3   diffusion Q=166.7 T_init=30
+node Ts_e3 diffusion T_init=30
+node Ts_d3 diffusion T_init=30
+node Cl_e3 fluid     T_init=30
+node Cl_d3 fluid     T_init=30
+
+link Tf3   Ts_e3 cond G=77.99
+link Tf3   Ts_d3 cond G=77.99
+link Ts_e3 Cl_e3 conv G=216.67
+link Ts_d3 Cl_d3 conv G=216.67
+
+# ============================================================
+# Transporte entalpico: dois canais paralelos (entrada a 30 degC)
+# mdot por canal = rho*vazao = 997*3e-4 = 0.2991 kg/s
+# G = mdot*cp = 0.2991 * 4182 = 1250.7 W/K
+# ============================================================
+fluid_chain Cl_e1 Cl_e2 Cl_e3 mdot=0.2991 cp=4182 T_in=30
+fluid_chain Cl_d1 Cl_d2 Cl_d3 mdot=0.2991 cp=4182 T_in=30
+
+# ============================================================
+# Resolucao e visualizacao
+# ============================================================
+show
+solve
+viz  png=saidas/canal_acoplado_rede.png titulo=Canais_acoplados
+gif  gif=saidas/canal_acoplado.gif fps=8 steps=35 titulo=Canais_acoplados
