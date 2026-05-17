@@ -1,31 +1,25 @@
 """
-exemplo_chip.py
+exemplo_chip.py  —  ABORDAGEM DIRETA (API lumped)
+=================================================
 
-Exemplo 1 do Capítulo V do livro
-    "Transferência de Calor Computacional - Método Nodal"
-    J. L. Ferraz Bastos e D. A. de Andrade, IPEN/CNEN-SP
+Monta nós e links MANUALMENTE, sem usar Geometry2D.
+É o caminho mais didático: cada condutância e cada nó aparecem
+explicitamente no código — ideal para entender os fundamentos do método nodal.
 
-CÁLCULO DA TEMPERATURA DE UM COMPONENTE ELETRÔNICO
+Compare com exemplo_chip_geom.py, que resolve o mesmo problema
+pelo caminho automático (Geometry2D + build_network_from_geometry).
 
-Geometria
-    componente: 30 mm × 30 mm soldado a uma placa por 12 conexões de cobre
-    conexões  : L = 20 mm, d = 1 mm, k = 380 W/(m·K)
+PROBLEMA: componente eletrônico Q = 4 W sobre placa de cobre
+  - item (a) só condução pelas pernas de cobre
+  - item (b) + convecção natural h = 30 W/(m²·K) para o ar
+Referência: Cap. V, Bastos & Andrade (IPEN/CNEN-SP)
 
-Hipóteses
-    Tp (temperatura da placa) = 44 °C   (condição de contorno)
-    Q (potência dissipada)    = 4 W
-    item (a) sem convecção
-    item (b) com convecção para o ar:  Tar = 20 °C, h = 30 W/(m²·K),
-             área convectiva = 30 mm × 30 mm
-
-Este script demonstra os 5 passos do método nodal usando a infraestrutura
-do framework:
-
-    Passo 1 - Discretização espacial      -> 1 nó (Tc) por modelo
-    Passo 2 - Identificação dos tipos      -> Tc DIFFUSION, Tp/Tar BOUNDARY
-    Passo 3 - Cálculo das condutâncias     -> conduction_G, convection_G
-    Passo 4 - Equações de balanço          -> NodalNetwork.residual_steady
-    Passo 5 - Resolução do sistema R(T)=0  -> solve_steady_state
+5 passos do método nodal:
+    Passo 1 - Discretização      -> 1 nó (Tc) por modelo
+    Passo 2 - Tipos de nó        -> Tc DIFFUSION, Tp/Tar BOUNDARY
+    Passo 3 - Condutâncias       -> conduction_G, convection_G
+    Passo 4 - Equações de balanço -> NodalNetwork.residual_steady
+    Passo 5 - Resolução R(T)=0   -> solve_steady_state
 """
 
 from __future__ import annotations

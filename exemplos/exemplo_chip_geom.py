@@ -1,5 +1,16 @@
 """
-exemplo_chip_geom.py
+exemplo_chip_geom.py  —  ABORDAGEM GEOMETRY2D (malha automática)
+================================================================
+
+Resolve o mesmo problema do chip eletrônico (Q = 4 W, pernas de cobre),
+mas pelo caminho automático: Geometry2D → regiões → malha → build_network_from_geometry.
+
+Compare com exemplo_chip.py, que monta a rede manualmente (1 nó por item).
+Aqui a malha cria dezenas de nós e a condutividade das pernas é agregada
+em k_eff para compatibilidade com a representação 2D.
+
+Útil como referência para geometrias mais complexas, onde o caminho
+manual seria impraticável.
 
 Reproduz o Exemplo 1 do Capítulo V do livro (componente eletrônico) usando
 o caminho Geometry2D + build_network_from_geometry + solve_steady_state,

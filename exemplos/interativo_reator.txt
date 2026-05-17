@@ -2,64 +2,59 @@
 # REATOR TIPO PLACA — explicacao dos comandos
 # ============================================================
 #
-# material uo2 / material zircaloy / material agua
-#   Define os materiais do problema (informativos — o modelo
-#   usa propriedades internas calculadas por correlacoes).
+# material combustivel / material cladding / material agua
+#   Define os materiais do problema.
+#   combustivel: UO2 (ceramica nuclear, k~3.6 W/mK)
+#   cladding:    Zircaloy-4 (revestimento, k=21 W/mK)
+#   agua:        refrigerante, propriedades a ~70 C medio
 #
 # reator_geom Lx=0.5 Ly=0.06 df=0.001 dcl=0.0005 dch=0.003 Lcanal=0.065
 #   Define a geometria da placa e dos canais:
-#   Lx=500mm  comprimento ativo da placa
-#   Ly=60mm   largura da placa
-#   df=1mm    espessura do combustivel (UO2)
-#   dcl=0.5mm espessura do cladding (Zircaloy)
-#   dch=3mm   espessura do canal de refrigeracao
-#   Lcanal=65mm comprimento do canal
+#   Lx=500mm    comprimento ativo da placa
+#   Ly=60mm     largura da placa
+#   df=1mm      espessura do combustivel (UO2)
+#   dcl=0.5mm   espessura do cladding (Zircaloy)
+#   dch=3mm     espessura do canal de refrigeracao
+#   Lcanal=65mm largura do canal
+#   -> Dh = 4*(3*65) / (2*(3+65)) = 5.74 mm
 #
-# reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=cos T_in=30 P_in=150000 dP=10000
-#   Configura o caso a resolver:
-#   n_axial=40    40 camadas axiais (40 x 9 nos = 360 nos no total)
-#   vazao=3e-4    vazao volumetrica por canal [m3/s]
-#   potencia=5000 potencia total da placa [W]
-#   modo=cos      perfil axial cossenoidal q(x)=q_max*cos(pi/2*x/L)
-#   T_in=30       temperatura de entrada do fluido [C]
-#   P_in=150000   pressao de entrada [Pa]
-#   dP=10000      queda de pressao no canal [Pa]
+# reator_config n_axial=40 vazao=2.6e-4 potencia=6800 modo=cos T_in=25 P_in=180000 dP=12000
+#   Parametros do canal:
+#   n_axial=40    40 camadas axiais (360 nos no total)
+#   vazao=2.6e-4  vazao volumetrica por canal [m3/s]
+#   potencia=6800 potencia total do canal [W]
+#   modo=cos      q"(x) = q"_med * cos(pi/2 * x/L), x de -L/2 a +L/2
+#   T_in=25       temperatura de entrada [C]
+#   P_in=180000   pressao estatica na entrada [Pa]
+#   dP=12000      perda de carga no canal [Pa]
 #
 # reator_solve
-#   Constroi a rede nodal completa e resolve (Newton-Raphson).
-#   Por camada: 9 nos — combustivel, interface, cladding, canal (ambos lados).
-#   Links: conducao fuel->cladding, conveccao cladding->canal,
-#          transporte entalpico axial ao longo do canal.
-#   Resultado esperado: Tch_saida=34.04 C  Tf_max=44.10 C (cos)
-#                       Tch_saida=34.04 C  Tf_max=44.44 C (constante)
+#   Constroi a rede nodal (360 nos, 9 por camada axial) e resolve.
+#   Por camada: Tf_t, Ti_t, Tcl_t, Ts_t, Tch, Ts_b, Tcl_b, Ti_b, Tf_b
+#   Links: conducao combustivel->clad, conveccao clad->canal (Dittus-Boelter),
+#          transporte entalpico axial descendente ao longo do canal.
 #
-# reator_show
-#   Exibe resumo: Tch_saida, Tf_max, perfis axiais, Dittus-Boelter.
-#
-# reator_csv dir=saidas_reator
-#   Salva CSVs com os perfis axiais de cada variavel por camada.
-#
-# reator_plot dir=saidas_reator
-#   Gera PNGs com graficos dos perfis axiais de temperatura e fluxo.
-#
-# reator_gif dir=saidas_reator fps=12 dpi=100
-#   Gera GIF do campo de temperatura nodal (9 transversal x 40 axial).
+# reator_show   Exibe resumo: temperaturas, hidraulica, Re, h.
+# reator_csv    Salva perfis axiais em CSV.
+# reator_plot   Gera PNGs dos perfis de temperatura e fluxo de calor.
+# reator_gif    Gera GIF animado do campo de temperatura nodal 2D.
 #
 # ============================================================
 # SEQUENCIA DE COMANDOS — cole um por um no prompt >>>
 # ============================================================
 
-material uo2 k=3.6 rho=10970 cp=247
-material zircaloy k=21.0 rho=6510 cp=278
+material combustivel k=3.6 rho=10970 cp=247
+material cladding k=21.0 rho=6510 cp=278
 material agua phase=fluid k=0.620 rho=994 cp=4182 mu=7.7e-4
 reator_geom Lx=0.5 Ly=0.06 df=0.001 dcl=0.0005 dch=0.003 Lcanal=0.065
-reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=cos T_in=30 P_in=150000 dP=10000
+show_geom
+reator_config n_axial=40 vazao=2.6e-4 potencia=6800 modo=cos T_in=25 P_in=180000 dP=12000
 reator_solve
 reator_show
 reator_csv dir=saidas_reator
 reator_plot dir=saidas_reator
 reator_gif dir=saidas_reator fps=12 dpi=100
-reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=constante T_in=30 P_in=150000 dP=10000
+reator_config n_axial=40 vazao=2.6e-4 potencia=6800 modo=constante T_in=25 P_in=180000 dP=12000
 reator_solve
 reator_show
 reator_csv dir=saidas_reator

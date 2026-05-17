@@ -1,5 +1,5 @@
 # ============================================================
-# PROJETO FINAL — TNR5703
+# PROJETO FINAL — exemplo de nucleo 5x5
 # EC tipo placa, reator de pesquisa, canal mais quente
 # ============================================================
 #
@@ -16,16 +16,16 @@
 # nucleo_mapa png=arquivo.png
 #   Gera PNG do mapa radial de potencia: gradiente salmon proporcional
 #   ao fator, azul para controle/refletor, cinza para barra inserida.
-#   Destaca com borda vermelha o EC de maior fator (1.914, pos (3,4)).
+#   Destaca com borda vermelha o EC de maior fator.
 #
 # material u3si2_al / aluminio / agua
 #   Define os materiais do problema.
 #   u3si2_al: combustivel U3Si2-Al (k aprox. 15 W/mK)
-#   aluminio:  revestimento, k=180 W/mK (dado do enunciado)
+#   aluminio:  revestimento, k=180 W/mK
 #   agua:      refrigerante desmineralizado
 #
 # reator_geom Lx=0.6 Ly=0.0626 df=0.00076 dcl=0.00038 dch=0.00289 Lcanal=0.0671
-#   Geometria real do EC do Projeto Final:
+#   Geometria do EC tipo placa:
 #   Lx=600mm     comprimento ativo da placa
 #   Ly=62.6mm    largura do cerne do combustivel
 #   df=0.76mm    espessura do combustivel (U3Si2-Al)
@@ -37,21 +37,18 @@
 # show_geom
 #   Confirma a geometria: Dh, A_flow, todas as dimensoes.
 #
-# reator_config n_axial=40 vazao=3.33e-4 potencia=21267 modo=cos T_in=30 P_in=160000 dP=10000
+# reator_config n_axial=40 vazao=3.10e-4 potencia=18500 modo=cos T_in=28 P_in=170000 dP=11000
 #   Parametros do canal mais quente:
-#   n_axial=40      40 camadas axiais (40 x 9 nos = 360 nos no total)
-#   vazao=3.33e-4   22.8 m3/h por EC / 19 canais / 3600 s = 3.33e-4 m3/s por canal
-#   potencia=21267  fator 1.914 x (5e6 W / 25 EC) / 18 placas = 21267 W por canal
-#   modo=cos        q"(x) = q"medio * cos(pi/2 * x/L), x de -L/2 a +L/2
-#   T_in=30         temperatura de entrada [C]
-#   P_in=160000     pressao estatica na entrada [Pa]
-#   dP=10000        perda de carga no canal [Pa]
+#   n_axial=40      40 camadas axiais (360 nos no total)
+#   vazao=3.10e-4   vazao volumetrica por canal [m3/s]
+#   potencia=18500  potencia do canal mais quente [W]
+#   modo=cos        q"(x) = q"_med * cos(pi/2 * x/L), x de -L/2 a +L/2
+#   T_in=28         temperatura de entrada [C]
+#   P_in=170000     pressao estatica na entrada [Pa]
+#   dP=11000        perda de carga no canal [Pa]
 #
 # reator_solve
 #   Constroi a rede nodal (360 nos, 9 por camada axial) e resolve.
-#   Por camada: Tf_t, Ti_t, Tcl_t, Ts_t, Tch, Ts_b, Tcl_b, Ti_b, Tf_b
-#   Links: conducao combustivel->clad, conveccao clad->canal (Dittus-Boelter),
-#          transporte entalpico axial descendente ao longo do canal.
 #
 # reator_show   Exibe resumo completo: temperaturas, hidraulica, Re, h.
 # reator_csv    Salva perfis axiais em CSV por camada.
@@ -59,51 +56,47 @@
 # reator_gif    Gera GIF animado do campo de temperatura nodal 2D.
 #
 #
-# nucleo_solve P_total=5e6 n_canais=19 png=saidas_projeto_final/mapa_temperaturas.png
-#   Resolve todos os 20 ECs ativos individualmente, cada um com potencia
-#   proporcional ao seu fator radial (P_total / n_ec / n_canais * fator).
+# nucleo_solve P_total=4.5e6 n_canais=17 png=saidas_projeto_final/mapa_temperaturas.png
+#   Resolve todos os ECs ativos individualmente, cada um com potencia
+#   proporcional ao seu fator radial.
 #   Gera mapa 5x5 colorido (escala plasma) com Tf_max de cada posicao.
 #   EC mais quente destacado com borda vermelha.
-#   ATENCAO: resolve 20 canais em sequencia — pode demorar ~30s.
-#   gif=arquivo.gif [fps=4]: GIF animado revelando o mapa EC por EC conforme
-#   cada canal e resolvido (scan progressivo do nucleo).
+#   gif=arquivo.gif [fps=4]: GIF animado revelando o mapa EC por EC.
 #
 # ec_associacao n_int=17 n_ext=2 dch_int=0.00289 dch_ext=0.00452
-#              potencia=21267 vazao=3.33e-4 png=... gif=... fps=10 steps=40
+#              potencia=18500 vazao=3.10e-4 png=... gif=... fps=10 steps=40
 #   Modela a associacao de canais em paralelo de um EC completo:
-#   - 17 canais internos (2.89mm x 67.1mm): aquecidos por 2 faces de placa
-#   - 2 canais externos (4.52mm x 67.1mm): aquecidos por 1 face de placa
-#   Distribui a vazao total pelo mesmo dP (Blasius turbulento): V proporcional
-#   a A*Dh^(5/7). Resolve cada tipo e gera figura comparativa de perfis axiais.
-#   gif=arquivo.gif: pseudo-transiente dos dois canais lado a lado (frio -> regime).
+#   - 17 canais internos (2.89mm): aquecidos por 2 faces de placa
+#   - 2 canais externos (4.52mm): aquecidos por 1 face de placa
+#   Distribui a vazao total pelo mesmo dP (Blasius turbulento).
 #
 # ============================================================
 # SEQUENCIA DE COMANDOS — cole um por um no prompt >>>
 # ============================================================
 
 nucleo_init rows=5 cols=5
-nucleo_linha row=0 vals=1.321,1.563,0.981,1.628,1.030 tipos=EC,EC,EC,EC,EC
-nucleo_linha row=1 vals=0.857,0.515,1.129,0.402,0.826 tipos=EC,CR,EC,CR,EC
-nucleo_linha row=2 vals=1.050,1.877,0.000,1.914,0.979 tipos=EC,EC,CR,EC,EC
-nucleo_linha row=3 vals=0.860,0.411,1.151,0.519,0.822 tipos=EC,CR,EC,CR,EC
-nucleo_linha row=4 vals=0.906,1.028,0.878,1.044,0.867 tipos=EC,EC,EC,EC,EC
+nucleo_linha row=0 vals=1.284,1.531,0.962,1.573,1.018 tipos=EC,EC,EC,EC,EC
+nucleo_linha row=1 vals=0.841,0.502,1.108,0.391,0.814 tipos=EC,CR,EC,CR,EC
+nucleo_linha row=2 vals=1.032,1.842,0.000,1.876,0.961 tipos=EC,EC,CR,EC,EC
+nucleo_linha row=3 vals=0.847,0.398,1.136,0.507,0.809 tipos=EC,CR,EC,CR,EC
+nucleo_linha row=4 vals=0.891,1.013,0.863,1.028,0.851 tipos=EC,EC,EC,EC,EC
 nucleo_mapa png=saidas_projeto_final/mapa_nucleo.png
 material u3si2_al k=15.0 rho=4300 cp=836
 material aluminio k=180 rho=2700 cp=900
 material agua phase=fluid k=0.620 rho=994 cp=4182 mu=7.7e-4
 reator_geom Lx=0.6 Ly=0.0626 df=0.00076 dcl=0.00038 dch=0.00289 Lcanal=0.0671
 show_geom
-reator_config n_axial=40 vazao=3.33e-4 potencia=21267 modo=cos T_in=30 P_in=160000 dP=10000
+reator_config n_axial=40 vazao=3.10e-4 potencia=18500 modo=cos T_in=28 P_in=170000 dP=11000
 reator_solve
 reator_show
 reator_csv dir=saidas_projeto_final
 reator_plot dir=saidas_projeto_final
 reator_gif dir=saidas_projeto_final fps=12 dpi=100
-reator_config n_axial=40 vazao=3.33e-4 potencia=21267 modo=constante T_in=30 P_in=160000 dP=10000
+reator_config n_axial=40 vazao=3.10e-4 potencia=18500 modo=constante T_in=28 P_in=170000 dP=11000
 reator_solve
 reator_show
 reator_csv dir=saidas_projeto_final
 reator_plot dir=saidas_projeto_final
 reator_gif dir=saidas_projeto_final fps=12 dpi=100
-nucleo_solve P_total=5e6 n_canais=19 png=saidas_projeto_final/mapa_temperaturas.png gif=saidas_projeto_final/mapa_temperaturas.gif fps=4
-ec_associacao n_int=17 n_ext=2 dch_int=0.00289 dch_ext=0.00452 potencia=21267 vazao=3.33e-4 png=saidas_projeto_final/ec_associacao.png gif=saidas_projeto_final/ec_associacao.gif fps=10 steps=40
+nucleo_solve P_total=4.5e6 n_canais=17 png=saidas_projeto_final/mapa_temperaturas.png gif=saidas_projeto_final/mapa_temperaturas.gif fps=4
+ec_associacao n_int=17 n_ext=2 dch_int=0.00289 dch_ext=0.00452 potencia=18500 vazao=3.10e-4 png=saidas_projeto_final/ec_associacao.png gif=saidas_projeto_final/ec_associacao.gif fps=10 steps=40

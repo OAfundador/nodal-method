@@ -1,33 +1,26 @@
 """
-exemplo_placa.py
+exemplo_placa.py  —  PROBLEMA DIFERENTE: placa retangular 2D
+============================================================
 
-Exemplo do método nodal usando a infraestrutura completa de geometria.py:
+ESTE ARQUIVO NÃO É O CHIP. É um problema independente:
+uma placa retangular de alumínio com fonte de calor central.
 
+Demonstra o pipeline Geometry2D completo com um caso mais rico que o chip:
+múltiplas regiões, fonte volumétrica em sub-região, BC de Dirichlet (bottom)
+e BC de convecção (top). Bom ponto de partida para adaptar a novos problemas.
+
+PROBLEMA: placa retangular de alumínio (100 × 60 mm)
+    - fonte uniforme q''' = 5×10⁵ W/m³ em região central (40 × 30 mm)
+    - bottom: T = 30 °C (Dirichlet)
+    - top: convecção h = 50 W/(m²·K), T_ar = 20 °C
+    - left e right: adiabáticas
+
+Pipeline completo:
     Geometry2D  ->  regiões com material  ->  fronteiras (BC)
                 ->  fonte volumétrica
                 ->  discretização (manual ou automática)
                 ->  build_network_from_geometry  ->  NodalNetwork
                 ->  solve_steady_state
-
-PROBLEMA
---------
-Uma placa retangular 2D em regime estacionário, com:
-    - dimensões: 100 mm × 60 mm (espessura unitária em z)
-    - material : alumínio puro, k = 200 W/(m·K)
-    - fonte uniforme: q''' = 5e5 W/m³ em uma região central de 40 × 30 mm
-    - fronteiras: bottom em T = 30 °C (Dirichlet)
-                  top em convecção (h = 50 W/(m²·K), T_ar = 20 °C)
-                  left e right adiabáticas
-
-Esse é o caso natural para a Geometry2D: regiões 2D, malha cartesiana,
-condições de contorno por lado. O framework cuida de:
-
-    Passo 1 (discretização)   -> geom.mesh(nx, ny)
-    Passo 2 (tipos de nó)     -> build_network_from_geometry: DIFFUSION
-                                 para cada cell + BOUNDARY pelas BCs
-    Passo 3 (condutâncias)    -> calculadas das interfaces de cells
-    Passo 4 (balanço)         -> NodalNetwork.residual_steady
-    Passo 5 (resolução)       -> solve_steady_state
 """
 
 from __future__ import annotations
