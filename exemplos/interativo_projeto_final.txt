@@ -20,8 +20,12 @@
 #
 # material u3si2_al / aluminio / agua
 #   Define os materiais do problema.
-#   u3si2_al: combustivel U3Si2-Al (k aprox. 15 W/mK)
-#   aluminio:  revestimento, k=180 W/mK
+#   u3si2_al: combustivel U3Si2-Al com k(T) pela correlacao do enunciado:
+#             k(T)[BTU/hftF] = 3978.1/(692.61+T_F) + 6.02366e-12*(T_F+460)^3
+#             Convertida para SI (T em C, k em W/mK):
+#             k(T) = 1.73073*(3978.1/(724.61+1.8*T) + 6.02366e-12*(1.8*T+492)^3)
+#             Varia de ~8.95 W/mK a 25 C ate ~7.61 W/mK a 100 C.
+#   aluminio:  revestimento, k=180 W/mK (constante, conforme enunciado)
 #   agua:      refrigerante desmineralizado
 #
 # reator_geom Lx=0.6 Ly=0.0626 df=0.00076 dcl=0.00038 dch=0.00289 Lcanal=0.0671
@@ -81,7 +85,7 @@ nucleo_linha row=2 vals=1.032,1.842,0.000,1.876,0.961 tipos=EC,EC,CR,EC,EC
 nucleo_linha row=3 vals=0.847,0.398,1.136,0.507,0.809 tipos=EC,CR,EC,CR,EC
 nucleo_linha row=4 vals=0.891,1.013,0.863,1.028,0.851 tipos=EC,EC,EC,EC,EC
 nucleo_mapa png=saidas_projeto_final/mapa_nucleo.png
-material u3si2_al k=15.0 rho=4300 cp=836
+material u3si2_al k_expr="1.73073*(3978.1/(724.61+1.8*T)+6.02366e-12*(1.8*T+492)**3)" rho=4300 cp=836
 material aluminio k=180 rho=2700 cp=900
 material agua phase=fluid k=0.620 rho=994 cp=4182 mu=7.7e-4
 reator_geom Lx=0.6 Ly=0.0626 df=0.00076 dcl=0.00038 dch=0.00289 Lcanal=0.0671

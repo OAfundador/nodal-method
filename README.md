@@ -193,10 +193,19 @@ Distribui vazão entre 17 canais internos e 2 externos pelo mesmo ΔP (Blasius: 
 
 ```
 material <nome> [phase=solid|fluid] [k=v] [rho=v] [cp=v] [mu=v]
-                [k_poly=a0,a1,a2]        # k(T) = a0 + a1·T + a2·T²
-                [k_expr="15+0.002*T"]    # k(T) expressão simbólica
+                [k_poly=a0,a1,a2]        # k(T) = a0 + a1·T + a2·T²  (T em °C)
+                [k_expr="15+0.002*T"]    # k(T) expressão simbólica   (T em °C)
 materiais                                # lista todos os materiais definidos
 ```
+
+Quando `k_poly` ou `k_expr` são usados, a condutância de cada link de condução é reavaliada a cada iteração Newton com a temperatura local — sem modificação no solver.
+
+**Correlações usadas nos exemplos:**
+
+| Material | Expressão `k_expr` | Intervalo |
+|---|---|---|
+| UO2 (`interativo_reator.txt`) | `"1/(0.0452+2.46e-4*(T+273.15))"` | 8,4 W/mK @ 25°C → 3,5 W/mK @ 700°C |
+| U₃Si₂-Al (`interativo_projeto_final.txt`) | `"1.73073*(3978.1/(724.61+1.8*T)+6.02366e-12*(1.8*T+492)**3)"` | 8,95 W/mK @ 25°C → 7,61 W/mK @ 100°C |
 
 ### Geometria 2D (montagem automática da rede)
 
