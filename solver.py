@@ -108,7 +108,9 @@ def _solve_with_scipy(
     # se a norma do resíduo estiver abaixo do critério.
     success = residual_norm <= max(tol * 10.0, 1e-7)
 
-    if success and update_network:
+    # Sempre grava a melhor solução encontrada (igual ao Newton FD).
+    # O chamador pode verificar sol.success para saber se convergiu.
+    if update_network:
         net.update_temperatures(sol.x)
 
     return SolverResult(
