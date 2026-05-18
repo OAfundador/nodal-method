@@ -26,7 +26,25 @@
 #             k(T) = 1.73073*(3978.1/(724.61+1.8*T) + 6.02366e-12*(1.8*T+492)^3)
 #             Varia de ~8.95 W/mK a 25 C ate ~7.61 W/mK a 100 C.
 #   aluminio:  revestimento, k=180 W/mK (constante, conforme enunciado)
-#   agua:      refrigerante desmineralizado
+#   agua:      refrigerante desmineralizado.
+#             O builtin "agua" ja vem com as correlacoes de Incropera Tab. A.6
+#             (rho, mu, cp, k em funcao de T) e a equacao de Antoine (T_sat
+#             em funcao de P) embutidas como *_expr — usadas automaticamente
+#             pelo solver via _refrigerante_da_sessao().
+#
+#             Para usar VALORES CONSTANTES (mais didatico para o relatorio):
+#               material agua phase=fluid k=0.620 rho=994 cp=4182 mu=7.7e-4
+#             Isso derruba os respectivos *_expr do builtin (mas mantem
+#             t_sat_expr para a margem ate a saturacao).
+#
+#             Para usar EXPRESSOES PROPRIAS (ex.: outra correlacao):
+#               material agua phase=fluid \
+#                 rho_expr="999.842594 + 6.793952e-2*T - 9.095290e-3*T**2" \
+#                 cp_expr="4217.0 - 3.358*T + 0.04148*T**2" \
+#                 mu_expr="2.414e-5 * 10.0**(247.8 / (T + 273.15 - 140.0))" \
+#                 k_expr="0.5615 + 1.939e-3*T - 7.51e-6*T**2"
+#             Quaisquer campos nao definidos pelo usuario sao herdados do
+#             builtin.
 #
 # reator_geom Lx=0.6 Ly=0.0626 df=0.00076 dcl=0.00038 dch=0.00289 Lcanal=0.0671
 #   Geometria do EC tipo placa:

@@ -4,8 +4,12 @@
 #
 # material combustivel / material cladding / material agua
 #   Define os materiais do problema.
-#   combustivel: UO2 (ceramica nuclear, k~3.6 W/mK)
-#   cladding:    Zircaloy-4 (revestimento, k=21 W/mK)
+#   combustivel: UO2 com k(T) pela correlacao de Harding & Martin:
+#                k(T) = 1 / (0.0452 + 2.46e-4 * T_K)  [W/mK]
+#                onde T_K = T[C] + 273.15
+#                Varia de ~8.4 W/mK a 25 C ate ~3.5 W/mK a 700 C.
+#                No REPL: k_expr="1/(0.0452+2.46e-4*(T+273.15))"
+#   cladding:    Zircaloy-4 (revestimento, k=21 W/mK, constante)
 #   agua:        refrigerante, propriedades a ~70 C medio
 #
 # reator_geom Lx=0.5 Ly=0.06 df=0.001 dcl=0.0005 dch=0.003 Lcanal=0.065
@@ -43,7 +47,7 @@
 # SEQUENCIA DE COMANDOS — cole um por um no prompt >>>
 # ============================================================
 
-material combustivel k=3.6 rho=10970 cp=247
+material combustivel k_expr="1/(0.0452+2.46e-4*(T+273.15))" rho=10970 cp=247
 material cladding k=21.0 rho=6510 cp=278
 material agua phase=fluid k=0.620 rho=994 cp=4182 mu=7.7e-4
 reator_geom Lx=0.5 Ly=0.06 df=0.001 dcl=0.0005 dch=0.003 Lcanal=0.065

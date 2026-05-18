@@ -1,0 +1,76 @@
+# comandos_tubo.txt
+#
+# Exemplo: troca de calor em tubo cilindrico (insercao 100% manual/interativa)
+#
+# Geometria:
+#   Material : aco  (k=50 W/mK)
+#   r_in     = 25 mm    r_out = 30 mm    L = 1 m
+#
+# Condicoes:
+#   Fluido interno : h_in  = 1000 W/(m2.K)   T_fluido = 90 degC
+#   Ar externo     : h_out =   10 W/(m2.K)   T_ar     = 20 degC
+#
+# Resistencias em serie:
+#   R_conv_int + R_cond_cil + R_conv_ext
+#
+# Resultado analitico:
+#   q           = 130.24 W
+#   T_parede_int = 89.17 degC
+#   T_parede_ext = 89.10 degC
+#
+# Para executar:
+#   python exemplos/exemplo_chip_interativo.py --script exemplos/comandos_tubo.txt
+#
+# Para interativo: python exemplos/exemplo_chip_interativo.py --interativo
+#   (cole cada linha abaixo no prompt >>>)
+
+# ============================================================
+# Passo 1: definir material
+# ============================================================
+material aco k=50 rho=7800 cp=500
+
+# ============================================================
+# Passo 2: calcular condutancias (valores exibidos no terminal)
+# ============================================================
+
+# Conveccao interna: G = h * 2*pi*r_in*L
+g_conv_cyl h=1000 r=0.025 L=1
+# -> G_conv_int = 157.08 W/K
+
+# Conducao cilindrica: G = 2*pi*k*L / ln(r_out/r_in)
+g_cond_cyl k=50 r_in=0.025 r_out=0.030 L=1
+# -> G_cond_cyl = 1723.11 W/K
+
+# Conveccao externa: G = h * 2*pi*r_out*L
+g_conv_cyl h=10 r=0.030 L=1
+# -> G_conv_ext = 1.885 W/K
+
+# ============================================================
+# Passo 3: criar nos
+# ============================================================
+node T_fluido  boundary  T_fixed=90
+node T_par_int diffusion T_init=60
+node T_par_ext diffusion T_init=30
+node T_ar      boundary  T_fixed=20
+
+# ============================================================
+# Passo 4: ligar nos (usar os valores calculados acima)
+# ============================================================
+link T_fluido  T_par_int conv G=157.08
+link T_par_int T_par_ext cond G=1723.11
+link T_par_ext T_ar      conv G=1.885
+
+# ============================================================
+# Passo 5: verificar rede e resolver
+# ============================================================
+show
+solve
+# Resultado esperado:
+#   T_par_int = 89.17 degC
+#   T_par_ext = 89.10 degC
+
+# ============================================================
+# Passo 6: visualizacao
+# ============================================================
+viz png=saidas/tubo_rede.png titulo=Tubo_cilindrico
+gif gif=saidas/tubo.gif fps=8 steps=30 titulo=Tubo_cilindrico

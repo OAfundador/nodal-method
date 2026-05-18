@@ -1,0 +1,46 @@
+# Comandos para reproduzir o exemplo da placa 2D
+# (exemplo_placa.py) usando o REPL interativo.
+#
+# Para executar:
+#     python exemplos/exemplo_chip_interativo.py --script exemplos/comandos_placa.txt
+#
+# Esse caminho usa a Geometry2D do framework para mostrar:
+#   - definição de áreas (region)
+#   - condições de contorno (bc)
+#   - fonte volumétrica (source)
+#   - discretização (mesh, com modos manual e automática)
+#   - construção automática da rede (build_from_geom)
+#   - resolução (solve)
+
+# --- Passo 1: domínio físico ---
+domain W=0.100 H=0.060
+
+# --- Passo 2: definição de áreas (regiões com material) ---
+# A região central da fonte é descrita separadamente; o resto da placa
+# fica em quatro pedaços ao seu redor (não pode haver sobreposição).
+region placa_esquerda      k=200 x0=0.000 x1=0.030 y0=0.000 y1=0.060
+region placa_direita       k=200 x0=0.070 x1=0.100 y0=0.000 y1=0.060
+region placa_central_inf   k=200 x0=0.030 x1=0.070 y0=0.000 y1=0.015
+region placa_central_sup   k=200 x0=0.030 x1=0.070 y0=0.045 y1=0.060
+region fonte               k=200 x0=0.030 x1=0.070 y0=0.015 y1=0.045
+
+# --- Passo 2 (continuação): fonte volumétrica e fronteiras ---
+source fonte q=5e5
+bc bottom temperature T=30
+bc top    convection  h=50 T_inf=20
+bc left   adiabatic
+bc right  adiabatic
+
+# --- Passo 1 (refinamento): discretização ---
+# Modo "auto": se a malha pedida não casar com as bordas das regiões,
+# o framework sugere a malha alinhada mínima.
+mesh nx=20 ny=12 fix=auto
+
+# --- Resumo textual da geometria ---
+show_geom
+
+# --- Passos 3 e 4: gerar a rede nodal automaticamente ---
+build_from_geom tz=0.010
+
+# --- Passo 5: resolução ---
+solve

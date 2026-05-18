@@ -1,0 +1,42 @@
+# comandos_reator.txt
+#
+# Reproduz a saída exata de exemplo_reator_placa.py usando o REPL interativo.
+#
+# Como executar (da pasta raiz do framework):
+#     python exemplos/exemplo_chip_interativo.py --script exemplos/comandos_reator.txt
+#
+# Parâmetros idênticos ao exemplo_reator_placa.py:
+#   P_PLACA_W          = 5000 W
+#   VAZAO_CANAL_M3_S   = 3.0e-4 m³/s
+#   n_axial            = 40
+#   GeometriaReator()  = defaults (Lx=500mm, Ly=60mm, df=1mm, dcl=0.5mm, dch=3mm)
+#   T_in=30°C, P_in=150kPa, dP=10kPa
+
+# ============================================================
+# CASO 1 — q'' cossenoidal  [cos(π/2 · x/L)]
+# ============================================================
+reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=cos T_in=30 P_in=150000 dP=10000
+reator_solve
+reator_show
+reator_csv dir=saidas_reator_placa
+reator_plot dir=saidas_reator_placa
+
+# ============================================================
+# CASO 2 — q'' constante
+# ============================================================
+reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=constante T_in=30 P_in=150000 dP=10000
+reator_solve
+reator_show
+reator_csv dir=saidas_reator_placa
+reator_plot dir=saidas_reator_placa
+
+# ============================================================
+# GIFs — animacao do campo de temperatura nodal
+# ============================================================
+reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=cos T_in=30 P_in=150000 dP=10000
+reator_solve
+reator_gif dir=saidas_reator_placa fps=12 dpi=100
+
+reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=constante T_in=30 P_in=150000 dP=10000
+reator_solve
+reator_gif dir=saidas_reator_placa fps=12 dpi=100
