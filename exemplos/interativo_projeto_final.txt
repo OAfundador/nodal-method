@@ -85,5 +85,5 @@ for j=1..N-1
 end
 
 # 7) Resolver e visualizar
-solve
-viz png=saidas_projeto_final/canal_cos.png titulo="Canal mais quente — cos"
+solve tol=1e-6 max_iter=1000
+viz png=saidas_projeto_final/canal_cos.png titulo="Cana

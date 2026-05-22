@@ -34,16 +34,11 @@ material aco k=50 rho=7800 cp=500
 # ============================================================
 
 # Conveccao interna: G = h * 2*pi*r_in*L
-g_conv_cyl h=1000 r=0.025 L=1
-# -> G_conv_int = 157.08 W/K
-
+let G_conv_int = 1000 * 2*pi*0.025*1
 # Conducao cilindrica: G = 2*pi*k*L / ln(r_out/r_in)
-g_cond_cyl k=50 r_in=0.025 r_out=0.030 L=1
-# -> G_cond_cyl = 1723.11 W/K
-
+let G_cond_cil = 2*pi*50*1 / log(0.030/0.025)
 # Conveccao externa: G = h * 2*pi*r_out*L
-g_conv_cyl h=10 r=0.030 L=1
-# -> G_conv_ext = 1.885 W/K
+let G_conv_ext = 10 * 2*pi*0.030*1
 
 # ============================================================
 # Passo 3: criar nos
@@ -56,9 +51,9 @@ node T_ar      boundary  T_fixed=20
 # ============================================================
 # Passo 4: ligar nos (usar os valores calculados acima)
 # ============================================================
-link T_fluido  T_par_int conv G=157.08
-link T_par_int T_par_ext cond G=1723.11
-link T_par_ext T_ar      conv G=1.885
+link T_fluido  T_par_int conv G=$G_conv_int
+link T_par_int T_par_ext cond G=$G_cond_cil
+link T_par_ext T_ar      conv G=$G_conv_ext
 
 # ============================================================
 # Passo 5: verificar rede e resolver
