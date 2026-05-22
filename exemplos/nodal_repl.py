@@ -2,15 +2,15 @@
 nodal_repl.py
 
 REPL / runner interativo do Metodo Nodal.
-Suporta problemas genericos (chip, placa 2D) e EC tipo placa nuclear.
 
-Toda a fisica do reator e embutida aqui — sem dependencia de reator_placa/.
+Runner 100% generico — nao conhece nenhum dominio fisico especifico.
 Usa apenas os 5 modulos core: condutancias, geometria, materiais, nos, solver.
+O que resolver e como resolver e definido exclusivamente pelo arquivo .txt.
 
 Uso:
   python exemplos/nodal_repl.py                    # modo interativo
   python exemplos/nodal_repl.py --demo             # demo rapido
-  python exemplos/nodal_repl.py exemplos/interativo_reator.txt
+  python exemplos/nodal_repl.py exemplos/meu_caso.txt
 """
 
 from __future__ import annotations
@@ -36,47 +36,6 @@ from nos import (
 )
 from solver import solve_steady_state
 
-
-# ===========================================================================
-# Fisica do reator tipo placa — inline (sem reator_placa/)
-# Usa: condutancias, materiais, nos (modulos core)
-# ===========================================================================
-
-# --- Constantes ---
-
-# --- Propriedades do refrigerante ---
-#
-# Toda a fisica do refrigerante (rho, mu, cp, k, T_sat) flui agora pelo
-# objeto Material instanciado a partir do dict de propriedades guardado
-# no REPL (state.materials) ou, como fallback, do _MATERIAIS_BUILTIN["agua"]
-# que contem as correlacoes de Incropera (Tab. A.6) e a equacao de Antoine
-# embutidas como *_expr. Veja _refrigerante_da_sessao() e _material_from_props().
-
-
-# --- Combustivel U3Si2-Al: k(T) pela correlacao do PDF TNR5703 ---
-
-
-
-
-# --- Geometria do EC tipo placa ---
-
-
-# --- Configuracao do caso ---
-
-
-# --- Distribuicao axial de potencia ---
-
-
-
-# --- Estruturas de dados da rede ---
-
-
-
-# --- Funcoes de condutancia dependente de temperatura ---
-
-
-
-# --- Construcao da rede nodal ---
 
 
 
