@@ -502,25 +502,6 @@ def criar_aluminio() -> Material:
     )
 
 
-def criar_combustivel_exemplo() -> Material:
-    """
-    Combustível U3Si2-Al.
-
-    O projeto informa k_f = f(T).
-    Aqui deixamos uma tabela exemplo para testar interpolação.
-    Substituir depois pelos pontos/correlação reais.
-    """
-
-    T_table = [20.0, 50.0, 100.0, 150.0, 200.0]
-    k_table = [90.0, 88.0, 85.0, 82.0, 80.0]
-
-    return Material(
-        name="U3Si2-Al",
-        phase=MaterialPhase.SOLID,
-        k_table=(T_table, k_table),
-    )
-
-
 def water_rho_exemplo(T: float, P: Optional[float] = None) -> float:
     return 997.0
 
@@ -566,7 +547,6 @@ def criar_agua_exemplo() -> Material:
 
 if __name__ == "__main__":
     aluminio = criar_aluminio()
-    combustivel = criar_combustivel_exemplo()
     agua = criar_agua_exemplo()
 
     T = 30.0
@@ -575,22 +555,17 @@ if __name__ == "__main__":
     print("=== Teste da classe Material ===")
     print()
 
-    for material in [aluminio, combustivel, agua]:
+    for material in [aluminio, agua]:
         print(material.describe())
 
     print()
     print("Interações padrão:")
-    print("aluminio x combustivel:", aluminio.default_interaction_with(combustivel))
     print("aluminio x agua:", aluminio.default_interaction_with(agua))
     print("agua x agua:", agua.default_interaction_with(agua))
 
     print()
     print(f"Material: {aluminio.name}")
     print(f"k = {aluminio.conductivity(T):.6g} W/(m K)")
-
-    print()
-    print(f"Material: {combustivel.name}")
-    print(f"k = {combustivel.conductivity(T):.6g} W/(m K)")
 
     print()
     print(f"Material: {agua.name}")

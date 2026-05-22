@@ -1,124 +1,89 @@
 # ============================================================
-# PROJETO FINAL — exemplo de nucleo 5x5
-# EC tipo placa, reator de pesquisa, canal mais quente
-# ============================================================
-#
-# nucleo_init rows=5 cols=5
-#   Inicializa uma matriz 5x5 vazia para o mapa de potencia radial.
-#
-# nucleo_linha row=N vals=v1,v2,... tipos=EC,CR,...
-#   Preenche a linha N (row=0 = linha de topo) com os fatores de
-#   potencia e os tipos de cada elemento do nucleo:
-#     EC  = elemento combustivel (placa de U3Si2-Al)
-#     CR  = elemento de controle ou refletor (sem geracao de calor)
-#   Um valor 0.0 indica barra inserida (q=0).
-#
-# nucleo_mapa png=arquivo.png
-#   Gera PNG do mapa radial de potencia: gradiente salmon proporcional
-#   ao fator, azul para controle/refletor, cinza para barra inserida.
-#   Destaca com borda vermelha o EC de maior fator.
-#
-# material u3si2_al / aluminio / agua
-#   Define os materiais do problema.
-#   u3si2_al: combustivel U3Si2-Al com k(T) pela correlacao do enunciado:
-#             k(T)[BTU/hftF] = 3978.1/(692.61+T_F) + 6.02366e-12*(T_F+460)^3
-#             Convertida para SI (T em C, k em W/mK):
-#             k(T) = 1.73073*(3978.1/(724.61+1.8*T) + 6.02366e-12*(1.8*T+492)^3)
-#             Varia de ~8.95 W/mK a 25 C ate ~7.61 W/mK a 100 C.
-#   aluminio:  revestimento, k=180 W/mK (constante, conforme enunciado)
-#   agua:      refrigerante desmineralizado.
-#             O builtin "agua" ja vem com as correlacoes de Incropera Tab. A.6
-#             (rho, mu, cp, k em funcao de T) e a equacao de Antoine (T_sat
-#             em funcao de P) embutidas como *_expr — usadas automaticamente
-#             pelo solver via _refrigerante_da_sessao().
-#
-#             Para usar VALORES CONSTANTES (mais didatico para o relatorio):
-#               material agua phase=fluid k=0.620 rho=994 cp=4182 mu=7.7e-4
-#             Isso derruba os respectivos *_expr do builtin (mas mantem
-#             t_sat_expr para a margem ate a saturacao).
-#
-#             Para usar EXPRESSOES PROPRIAS (ex.: outra correlacao):
-#               material agua phase=fluid \
-#                 rho_expr="999.842594 + 6.793952e-2*T - 9.095290e-3*T**2" \
-#                 cp_expr="4217.0 - 3.358*T + 0.04148*T**2" \
-#                 mu_expr="2.414e-5 * 10.0**(247.8 / (T + 273.15 - 140.0))" \
-#                 k_expr="0.5615 + 1.939e-3*T - 7.51e-6*T**2"
-#             Quaisquer campos nao definidos pelo usuario sao herdados do
-#             builtin.
-#
-# reator_geom Lx=0.6 Ly=0.0626 df=0.00076 dcl=0.00038 dch=0.00289 Lcanal=0.0671
-#   Geometria do EC tipo placa:
-#   Lx=600mm     comprimento ativo da placa
-#   Ly=62.6mm    largura do cerne do combustivel
-#   df=0.76mm    espessura do combustivel (U3Si2-Al)
-#   dcl=0.38mm   espessura do revestimento (aluminio)
-#   dch=2.89mm   espessura do canal interno de refrigeracao
-#   Lcanal=67.1mm largura do canal (para calculo de Dh e area)
-#   -> Dh = 4*(2.89*67.1) / (2*(2.89+67.1)) = 5.54 mm
-#
-# show_geom
-#   Confirma a geometria: Dh, A_flow, todas as dimensoes.
-#
-# reator_config n_axial=40 vazao=3.10e-4 potencia=18500 modo=cos T_in=28 P_in=170000 dP=11000
-#   Parametros do canal mais quente:
-#   n_axial=40      40 camadas axiais (360 nos no total)
-#   vazao=3.10e-4   vazao volumetrica por canal [m3/s]
-#   potencia=18500  potencia do canal mais quente [W]
-#   modo=cos        q"(x) = q"_med * cos(pi/2 * x/L), x de -L/2 a +L/2
-#   T_in=28         temperatura de entrada [C]
-#   P_in=170000     pressao estatica na entrada [Pa]
-#   dP=11000        perda de carga no canal [Pa]
-#
-# reator_solve
-#   Constroi a rede nodal (360 nos, 9 por camada axial) e resolve.
-#
-# reator_show   Exibe resumo completo: temperaturas, hidraulica, Re, h.
-# reator_csv    Salva perfis axiais em CSV por camada.
-# reator_plot   Gera PNGs dos perfis de temperatura e fluxo de calor.
-# reator_gif    Gera GIF animado do campo de temperatura nodal 2D.
-#
-#
-# nucleo_solve P_total=4.5e6 n_canais=17 png=saidas_projeto_final/mapa_temperaturas.png
-#   Resolve todos os ECs ativos individualmente, cada um com potencia
-#   proporcional ao seu fator radial.
-#   Gera mapa 5x5 colorido (escala plasma) com Tf_max de cada posicao.
-#   EC mais quente destacado com borda vermelha.
-#   gif=arquivo.gif [fps=4]: GIF animado revelando o mapa EC por EC.
-#
-# ec_associacao n_int=17 n_ext=2 dch_int=0.00289 dch_ext=0.00452
-#              potencia=18500 vazao=3.10e-4 png=... gif=... fps=10 steps=40
-#   Modela a associacao de canais em paralelo de um EC completo:
-#   - 17 canais internos (2.89mm): aquecidos por 2 faces de placa
-#   - 2 canais externos (4.52mm): aquecidos por 1 face de placa
-#   Distribui a vazao total pelo mesmo dP (Blasius turbulento).
-#
-# ============================================================
-# SEQUENCIA DE COMANDOS — cole um por um no prompt >>>
+# PROJETO FINAL — Canal mais quente, perfil cosseno (1 caso completo)
+# Usa SOMENTE primitivas: material, let, for/end, node, link, solve, viz, gif
+# Sem comandos especificos do reator. Todo o caso e montado aqui.
+# Cada linha pode ser digitada manualmente no prompt do REPL.
 # ============================================================
 
-nucleo_init rows=5 cols=5
-nucleo_linha row=0 vals=1.284,1.531,0.962,1.573,1.018 tipos=EC,EC,EC,EC,EC
-nucleo_linha row=1 vals=0.841,0.502,1.108,0.391,0.814 tipos=EC,CR,EC,CR,EC
-nucleo_linha row=2 vals=1.032,1.842,0.000,1.876,0.961 tipos=EC,EC,CR,EC,EC
-nucleo_linha row=3 vals=0.847,0.398,1.136,0.507,0.809 tipos=EC,CR,EC,CR,EC
-nucleo_linha row=4 vals=0.891,1.013,0.863,1.028,0.851 tipos=EC,EC,EC,EC,EC
-nucleo_mapa png=saidas_projeto_final/mapa_nucleo.png
-material u3si2_al k_expr="1.73073*(3978.1/(724.61+1.8*T)+6.02366e-12*(1.8*T+492)**3)" rho=4300 cp=836
+# 1) Materiais
+material u3si2_al
 material aluminio k=180 rho=2700 cp=900
 material agua phase=fluid k=0.620 rho=994 cp=4182 mu=7.7e-4
-reator_geom Lx=0.6 Ly=0.0626 df=0.00076 dcl=0.00038 dch=0.00289 Lcanal=0.0671
-show_geom
-reator_config n_axial=40 vazao=3.10e-4 potencia=18500 modo=cos T_in=28 P_in=170000 dP=11000
-reator_solve
-reator_show
-reator_csv dir=saidas_projeto_final
-reator_plot dir=saidas_projeto_final
-reator_gif dir=saidas_projeto_final fps=12 dpi=100
-reator_config n_axial=40 vazao=3.10e-4 potencia=18500 modo=constante T_in=28 P_in=170000 dP=11000
-reator_solve
-reator_show
-reator_csv dir=saidas_projeto_final
-reator_plot dir=saidas_projeto_final
-reator_gif dir=saidas_projeto_final fps=12 dpi=100
-nucleo_solve P_total=4.5e6 n_canais=17 png=saidas_projeto_final/mapa_temperaturas.png gif=saidas_projeto_final/mapa_temperaturas.gif fps=4
-ec_associacao n_int=17 n_ext=2 dch_int=0.00289 dch_ext=0.00452 potencia=18500 vazao=3.10e-4 png=saidas_projeto_final/ec_associacao.png gif=saidas_projeto_final/ec_associacao.gif fps=10 steps=40
+
+# 2) Constantes (geometria + operacao)
+let N        = 40
+let L        = 0.6
+let Ly       = 0.0626
+let df       = 0.00076
+let dcl      = 0.00038
+let dch      = 0.00289
+let Lcanal   = 0.0671
+let vazao    = 3.10e-4
+let T_in     = 28
+let P_in     = 170000
+let dP_can   = 11000
+let P_canal  = 18500
+
+# 3) Derivadas
+let dx       = L / N
+let Ax       = dx * Ly
+let A_flow   = dch * Lcanal
+let Dh       = 4 * A_flow / (2 * (dch + Lcanal))
+let m_dot    = vazao * agua.prop("rho", T_in, P_in)
+let V_fuel   = (df/2) * dx * Ly
+let V_clad   = dcl * dx * Ly
+let V_canal  = A_flow * dx
+let G_clad   = conduction_G(aluminio.prop("k", T_in), Ax, dcl/2)
+
+# Normalizacao do cosseno: integral discreta sobre N camadas
+let norm_sum = sum_over("j", 1, N, "cos(pi/2 * ((j-0.5)/N - 0.5))")
+let escala   = P_canal / (2 * norm_sum * Ax)
+
+# Chute inicial razoavel para a convergencia do Newton:
+# dT do fluido entre entrada e saida
+let dT_can   = P_canal / (m_dot * agua.prop("cp", T_in, P_in))
+
+# 4) Boundary node de entrada de fluido
+node Tch_inlet boundary T_fixed=$T_in
+
+# 5) Montagem de 40 camadas axiais (9 nos cada)
+for j=1..N
+  let x_j      = (j-0.5)*dx - L/2
+  let Q_face_j = cos(pi/2 * x_j / L) * escala * Ax
+  let P_j      = P_in - (j-1)/(N-1) * dP_can
+  let T_ch_g   = T_in + (j-0.5)/N * dT_can
+  let T_sd_g   = T_ch_g + 40
+
+  node Tf_top_$j  diffusion  Q=$Q_face_j V=$V_fuel  T_init=$T_sd_g
+  node Ti_top_$j  arithmetic                        T_init=$T_sd_g
+  node Tcl_top_$j diffusion  Q=0 V=$V_clad          T_init=$T_sd_g
+  node Ts_top_$j  arithmetic                        T_init=$T_sd_g
+  node Tch_$j     fluid      Q=0 V=$V_canal         T_init=$T_ch_g
+  node Ts_bot_$j  arithmetic                        T_init=$T_sd_g
+  node Tcl_bot_$j diffusion  Q=0 V=$V_clad          T_init=$T_sd_g
+  node Ti_bot_$j  arithmetic                        T_init=$T_sd_g
+  node Tf_bot_$j  diffusion  Q=$Q_face_j V=$V_fuel  T_init=$T_sd_g
+
+  # Conducao no combustivel (k(T) via material)
+  link Tf_top_$j Ti_top_$j cond G_expr="u3si2_al.prop('k', 0.5*(T['Tf_top_$j']+T['Ti_top_$j'])) * $Ax / ($df/2)"
+  link Tf_bot_$j Ti_bot_$j cond G_expr="u3si2_al.prop('k', 0.5*(T['Tf_bot_$j']+T['Ti_bot_$j'])) * $Ax / ($df/2)"
+  # Conducao no revestimento (k constante)
+  link Ti_top_$j  Tcl_top_$j cond G=$G_clad
+  link Tcl_top_$j Ts_top_$j  cond G=$G_clad
+  link Ti_bot_$j  Tcl_bot_$j cond G=$G_clad
+  link Tcl_bot_$j Ts_bot_$j  cond G=$G_clad
+  # Conveccao h(T) por Dittus-Boelter
+  link Ts_top_$j Tch_$j conv G_expr="dittus_h(agua, T['Tch_$j'], $P_j, $m_dot, $A_flow, $Dh) * $Ax"
+  link Ts_bot_$j Tch_$j conv G_expr="dittus_h(agua, T['Tch_$j'], $P_j, $m_dot, $A_flow, $Dh) * $Ax"
+end
+
+# 6) Transporte axial do fluido: G = m_dot * cp(T_avg)
+link Tch_inlet Tch_1 fluid G_expr="$m_dot * agua.prop('cp', 0.5*(T['Tch_inlet']+T['Tch_1']), $P_in)" dir=fwd
+for j=1..N-1
+  let P_j = P_in - (j-1)/(N-1) * dP_can
+  link Tch_$j Tch_$(j+1) fluid G_expr="$m_dot * agua.prop('cp', 0.5*(T['Tch_$j']+T['Tch_$(j+1)']), $P_j)" dir=fwd
+end
+
+# 7) Resolver e visualizar
+solve
+viz png=saidas_projeto_final/canal_cos.png titulo="Canal mais quente — cos"
