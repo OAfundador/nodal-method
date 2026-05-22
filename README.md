@@ -8,22 +8,82 @@ Baseado em **Transferência de Calor Computacional — Método Nodal** (J. L. Fe
 
 ## Filosofia
 
-O REPL (`nodal_repl.py`) é **100% genérico** — não conhece nenhum domínio físico específico. O que resolver e como montar a rede é definido exclusivamente pelo arquivo `.txt` passado como argumento, usando as ferramentas genéricas do método nodal (materiais, nós, links, geometria 2D).
-
-```
-python exemplos/nodal_repl.py exemplos/meu_caso.txt
-```
+O REPL (`nodal_repl.py`) é **100% genérico** — não conhece nenhum domínio físico específico. O que resolver e como montar a rede é definido exclusivamente pelo arquivo `.txt` passado como argumento, usando as ferramentas genéricas do método nodal: materiais, nós, links, geometria 2D.
 
 ---
 
-## Quickstart
+## Como usar
+
+### 1. Instalar
 
 ```bash
 git clone https://github.com/OAfundador/nodal-method.git
 cd nodal-method
 pip install -r requirements.txt
-python exemplos/nodal_repl.py exemplos/interativo_chip.txt
 ```
+
+### 2. Rodar um caso pronto
+
+```bash
+# Chip eletrônico — validado contra o livro
+python exemplos/nodal_repl.py exemplos/interativo_chip.txt
+
+# Canal de refrigeração com transporte entálpico
+python exemplos/nodal_repl.py exemplos/comandos_canal.txt
+
+# Dois canais acoplados por placa combustível
+python exemplos/nodal_repl.py exemplos/comandos_canal_acoplado.txt
+
+# Troca de calor em tubo cilíndrico
+python exemplos/nodal_repl.py exemplos/comandos_tubo.txt
+
+# EC tipo placa — referência
+python exemplos/nodal_repl.py exemplos/interativo_reator.txt
+
+# Projeto Final TNR5703 — referência
+python exemplos/nodal_repl.py exemplos/interativo_projeto_final.txt
+```
+
+### 3. Modo interativo (prompt `>>>`)
+
+```bash
+python exemplos/nodal_repl.py
+```
+
+Digite comandos diretamente e resolva qualquer problema passo a passo:
+
+```
+>>> material aluminio k=205 rho=2700 cp=900
+>>> node T1 diffusion Q=100 V=1e-4
+>>> node T2 boundary T_fixed=20
+>>> link T1 T2 cond G=2.5
+>>> solve
+  convergiu=True, |R|=3.2e-11, iter=1
+  T1 = 60.00 C
+  T2 = 20.00 C
+>>> viz png=minha_rede.png
+```
+
+### 4. Demo rápida (sem arquivo)
+
+```bash
+python exemplos/nodal_repl.py --demo
+```
+
+Roda o exemplo do chip eletrônico (itens a e b) direto no terminal.
+
+---
+
+## Arquivos disponíveis
+
+| Arquivo | Problema | Comandos-chave |
+|---|---|---|
+| `interativo_chip.txt` | Chip eletrônico Q=4W — validado contra o livro | `domain`, `region`, `source`, `bc`, `mesh`, `build_from_geom` |
+| `interativo_reator.txt` | EC tipo placa (UO2 + Zircaloy + água) | `material`, `node`, `link`, `fluid_chain`, `for..end` |
+| `interativo_projeto_final.txt` | Projeto Final TNR5703 — núcleo completo | `material`, `node`, `link`, `for..end`, `solve` |
+| `comandos_canal.txt` | Canal aquecido com transporte entálpico | `fluid_chain`, `node`, `link` |
+| `comandos_canal_acoplado.txt` | Dois canais acoplados por placa combustível | `node`, `link`, `fluid_chain` |
+| `comandos_tubo.txt` | Troca de calor em tubo cilíndrico | `node`, `link`, `g_cond`, `g_conv` |
 
 ---
 
@@ -61,13 +121,13 @@ print(net.nodes[Tc].temperature)  # → 66.34 °C
 ```
 material <nome> [phase=solid|fluid] [k=v] [rho=v] [cp=v] [mu=v]
                 [k_poly=a0,a1,a2]       # k(T) = a0 + a1·T + a2·T²
-                [k_expr="15+0.002*T"]   # k(T) expressão em T [°C]
+                [k_expr="15+0.002*T"]   # expressão simbólica em T [°C]
 materiais                               # lista todos os materiais
 ```
 
-Quando `k_poly` ou `k_expr` são fornecidos, a condutância é reavaliada a cada iteração Newton com a temperatura local do link — sem nenhuma alteração no solver.
+Quando `k_poly` ou `k_expr` são fornecidos, a condutância é reavaliada a cada iteração Newton com a temperatura local — sem nenhuma alteração no solver.
 
-### Geometria 2D (montagem automática)
+### Geometria 2D (montagem automática da rede)
 
 ```
 domain W=v H=v
@@ -102,19 +162,24 @@ g_conv h=v A=v          →  G = h·A    [W/K]
 ### Variáveis e loops
 
 ```
-let <nome> = <expressao>       # define variável escalar ou lista
+let <nome> = <expressao>
 for <var>=<lo>..<hi>
-  ...                          # linhas podem usar $var e $(expr)
+  ...                    # use $var e $(expr) nas linhas
 end
 ```
 
 ### Expressões dinâmicas
 
-Em qualquer campo `X_expr="..."` você pode usar:
-- `math.*`, `T` (temperatura do nó em iteração)
-- `dittus_h(material, T, P, mdot, A_flow, Dh)` — correlação de Dittus-Boelter
-- `conduction_G(k,A,L)`, `convection_G(h,A)`
-- `sum_over("var", lo, hi, "expr")`
+Em qualquer campo `G_expr="..."` ou `Q_expr="..."`:
+
+```
+dittus_h(material, T, P, mdot, A_flow, Dh)   # Dittus-Boelter h [W/m²K]
+conduction_G(k, A, L)
+convection_G(h, A)
+sum_over("i", lo, hi, "expr")
+math.*                                         # sin, exp, log, etc.
+T['nome_no']                                   # temperatura atual do nó
+```
 
 ### Visualização
 
@@ -125,16 +190,14 @@ gif  [gif=arquivo.gif] [fps=10] [steps=40] [dpi=100]
 
 ---
 
-## Exemplo validado — Chip eletrônico
+## Validação — Chip eletrônico
 
-Componente de Q = 4 W sobre substrato de cobre. Dois casos: (a) só condução, (b) com convecção h = 30 W/m²K.
-
-**Arquivo:** `exemplos/interativo_chip.txt`
+Componente de Q = 4 W sobre substrato de cobre. Dois casos do Capítulo V do livro:
 
 | Caso | Livro | Este código |
 |---|---|---|
 | (a) só condução | 66,3 °C | **66,34 °C** ✓ |
-| (b) + convecção h=30 | 60,266 °C | **60,27 °C** ✓ |
+| (b) + convecção h=30 W/m²K | 60,266 °C | **60,27 °C** ✓ |
 
 ---
 
@@ -149,13 +212,13 @@ nodal-method/
 ├── solver.py
 ├── requirements.txt
 └── exemplos/
-    ├── nodal_repl.py               ← REPL genérico — ponto de entrada
-    ├── interativo_chip.txt         ← chip eletrônico (validado)
-    ├── interativo_reator.txt       ← EC tipo placa (referência)
-    ├── interativo_projeto_final.txt← Projeto Final TNR5703 (referência)
-    ├── exemplo_chip.py
-    ├── exemplo_chip_geom.py
-    └── exemplo_placa.py
+    ├── nodal_repl.py                   ← REPL genérico — ponto de entrada
+    ├── interativo_chip.txt             ← chip eletrônico (validado)
+    ├── interativo_reator.txt           ← EC tipo placa (referência)
+    ├── interativo_projeto_final.txt    ← Projeto Final TNR5703 (referência)
+    ├── comandos_canal.txt              ← canal aquecido
+    ├── comandos_canal_acoplado.txt     ← dois canais acoplados
+    └── comandos_tubo.txt               ← troca de calor em tubo
 ```
 
 > As pastas `saidas*/` são geradas localmente e não são rastreadas pelo git.
