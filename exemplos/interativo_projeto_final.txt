@@ -86,4 +86,4 @@ end
 
 # 7) Resolver e visualizar
 solve tol=1e-6 max_iter=1000
-viz png=saidas_projeto_final/canal_cos.png titulo="Cana
+viz png=saidas_projeto_final/canal_cos.png titulo=Canal_cos_cos

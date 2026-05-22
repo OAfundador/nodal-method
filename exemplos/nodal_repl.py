@@ -147,7 +147,9 @@ HELP = """
        tipo: temperature | convection | adiabatic
   mesh nx=v ny=v [fix=auto|none]
   show_geom        Resume dominio, regioes, BCs e malha
-  build_from_geom  [tz=v]   Gera rede nodal automaticamente
+  build_from_geom  [tz=v] [h_int=v] [P=v]
+       Gera rede nodal automaticamente. Se houver interface interna
+       solido-fluido na geometria, e obrigatorio passar h_int=...
 
 --- REDE NODAL DIRETA ---
   node <nome> <tipo> [Q=v] [T_fixed=v] [T_init=v] [V=v]
@@ -576,16 +578,16 @@ def cmd_mesh(state, args):
 
 def cmd_build_from_geom(state, args):
     geom = _req(state); kw = parse_kwargs(args) if args else {}
-    state.net = build_network_from_geometry(geom, thickness_z=fnum(kw.get("tz", "1")))
+    h_int = fnum(kw["h_int"]) if "h_int" in kw else None
+    P     = fnum(kw["p"])     if "p"     in kw else None
+    state.net = build_network_from_geometry(
+        geom,
+        thickness_z=fnum(kw.get("tz", "1")),
+        internal_convection_h=h_int,
+        pressure=P,
+    )
     state.ids.clear()
     return f"  -> NodalNetwork: {len(state.net.nodes)} nos, {len(state.net.links)} ligacoes"
-
-
-# ---------------------------------------------------------------------------
-# Comandos do reator tipo placa
-# ---------------------------------------------------------------------------
-
-
 
 
 
@@ -1083,10 +1085,6 @@ def rodar_repl():
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        arg = sys.argv[1]
-        if arg == "--demo":
-            rodar_demo()
-        else:
-            rodar_arquivo(arg)
+        rodar_arquivo(sys.argv[1])
     else:
         rodar_repl()
