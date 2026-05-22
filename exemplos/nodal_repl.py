@@ -9,7 +9,6 @@ O que resolver e como resolver e definido exclusivamente pelo arquivo .txt.
 
 Uso:
   python exemplos/nodal_repl.py                    # modo interativo
-  python exemplos/nodal_repl.py --demo             # demo rapido
   python exemplos/nodal_repl.py exemplos/meu_caso.txt
 """
 
@@ -34,7 +33,7 @@ from nos import (
     NodalNetwork, NodeKind, TransferKind, LinkDirection,
     build_network_from_geometry, conduction_func_between_nodes,
 )
-from solver import solve_steady_state
+from solver import solve_steady_state, solve_transient
 
 
 
@@ -181,6 +180,13 @@ HELP = """
   dittus_h(material, T, P, mdot, A_flow, Dh),
   sum_over("var", lo, hi, "expr"),
   e em G_expr: T['nome_no'] -> temperatura atual durante a iteracao.
+
+
+--- TRANSIENTE ---
+  solve_transient dt=v t_end=v [tol=1e-6] [max_iter=30] [save_every=1]
+       Integra C·dT/dt = R(T) por Euler implícito (Newton por passo).
+       Nós diffusion/fluid precisam ter V= e material com rho e cp.
+       Resultado armazenado para gif_transient.
 
 --- VISUALIZACAO ---
   viz  [png=arquivo.png] [titulo=Texto]
@@ -335,10 +341,18 @@ def cmd_node(state, args):
                                   fixed_temperature=Tf, temperature=Tf)
     else:
         V_def = 0.0 if kind is NodeKind.ARITHMETIC else 1.0
+        mat_nome = kw.get("mat", None)
+        mat_obj  = None
+        if mat_nome:
+            props = state.materials.get(mat_nome) or _MATERIAIS_BUILTIN.get(mat_nome)
+            if props is None:
+                raise ValueError(f"material {mat_nome!r} nao definido.")
+            mat_obj = _material_from_props(mat_nome, props)
         nid = state.net.add_node(name=nome, kind=kind, x=state.x_counter, y=0.0,
                                   volume=_val("v", V_def),
                                   source=_val("q", 0.0),
-                                  temperature=_val("t_init", 30.0))
+                                  temperature=_val("t_init", 30.0),
+                                  material=mat_obj)
     state.ids[nome] = nid; state.x_counter += 1.0
     return f"  -> no {nome} criado (id={nid}, kind={kind.value})"
 
@@ -808,6 +822,121 @@ def cmd_gif_generico(state, args):
 
 
 
+
+
+def cmd_solve_transient(state, args):
+    """solve_transient dt=v t_end=v [tol=1e-6] [max_iter=30] [save_every=1]"""
+    if len(state.net.nodes) == 0:
+        return "  rede vazia."
+    kw         = parse_kwargs(args) if args else {}
+    dt         = fnum(kw.get("dt",         "1.0"))
+    t_end      = fnum(kw.get("t_end",      "100.0"))
+    tol        = fnum(kw.get("tol",        "1e-6"))
+    max_iter   = int(fnum(kw.get("max_iter",   "30")))
+    save_every = int(fnum(kw.get("save_every", "1")))
+
+    r = solve_transient(
+        state.net,
+        t_end=t_end,
+        dt=dt,
+        tol=tol,
+        max_newton_iter=max_iter,
+        save_every=save_every,
+    )
+    state.transient_result = r
+
+    out = [
+        f"  {r.message}",
+        f"  T_max(t=0)   = {r.snapshots[0].max():.4f} C",
+        f"  T_max(t_end) = {r.snapshots[-1].max():.4f} C",
+        f"  success = {r.success}",
+    ]
+    return "\n".join(out)
+
+
+def cmd_gif_transient(state, args):
+    """gif_transient [gif=arquivo.gif] [fps=8] [dpi=100] [titulo=Texto]"""
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.animation as animation
+    from matplotlib.colors import Normalize
+    from matplotlib.cm import ScalarMappable
+
+    if state.transient_result is None:
+        return "  Rode solve_transient antes."
+    tr = state.transient_result
+    if not tr.snapshots:
+        return "  Nenhum snapshot no resultado transiente."
+
+    kw      = parse_kwargs(args) if args else {}
+    outfile = kw.get("gif", "transiente.gif")
+    fps     = int(fnum(kw.get("fps",   "8")))
+    dpi     = int(fnum(kw.get("dpi",   "100")))
+    titulo  = kw.get("titulo", "Transiente Nodal")
+
+    net       = state.net
+    node_ids  = tr.node_ids
+    all_ids   = list(net.nodes.keys())
+    id_to_pos = {i: (net.nodes[i].x, net.nodes[i].y) for i in all_ids}
+
+    all_T = _np.concatenate(tr.snapshots)
+    T_lo  = float(all_T.min()); T_hi = float(all_T.max())
+    if abs(T_hi - T_lo) < 0.01: T_hi = T_lo + 1.0
+    norm = Normalize(vmin=T_lo, vmax=T_hi); cmap = plt.cm.hot
+
+    bnd_ids = [i for i in all_ids if i not in node_ids]
+    bnd_T   = _np.array([net.nodes[i].temperature for i in bnd_ids])
+    bnd_xs  = _np.array([id_to_pos[i][0] for i in bnd_ids])
+    bnd_ys  = _np.array([id_to_pos[i][1] for i in bnd_ids])
+
+    unk_xs = _np.array([id_to_pos[i][0] for i in node_ids])
+    unk_ys = _np.array([id_to_pos[i][1] for i in node_ids])
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    link_style = {
+        TransferKind.CONDUCTION:      ("#888888", "-",  0.8),
+        TransferKind.CONVECTION:      ("#4499ff", "--", 0.9),
+        TransferKind.FLUID_TRANSPORT: ("#ff4444", "-",  1.3),
+        TransferKind.RADIATION:       ("#cc44ff", ":",  0.9),
+        TransferKind.EQUIVALENT:      ("#aaaaaa", "-.", 0.7),
+    }
+    for lk in net.links:
+        xi, yi = id_to_pos[lk.node_i]; xj, yj = id_to_pos[lk.node_j]
+        col, ls, lw = link_style.get(lk.kind, ("#888888", "-", 0.8))
+        ax.plot([xi, xj], [yi, yj], color=col, ls=ls, lw=lw, alpha=0.35, zorder=1)
+
+    T0 = tr.snapshots[0]
+    sc_unk = ax.scatter(unk_xs, unk_ys, c=T0, cmap=cmap, norm=norm,
+                        marker="o", s=90, edgecolors="black", lw=0.6, zorder=4,
+                        label="desconhecidos")
+    if len(bnd_ids) > 0:
+        ax.scatter(bnd_xs, bnd_ys, c=bnd_T, cmap=cmap, norm=norm,
+                   marker="D", s=65, edgecolors="black", lw=0.6, zorder=4,
+                   label="boundary")
+
+    sm = ScalarMappable(cmap=cmap, norm=norm); sm.set_array([])
+    plt.colorbar(sm, ax=ax, label="T [degC]", shrink=0.85)
+    ax.set_xlabel("x"); ax.set_ylabel("y")
+    ax.set_title(titulo)
+    ax.legend(loc="upper right", fontsize=7, framealpha=0.6)
+    ax.grid(True, alpha=0.18)
+    time_txt = ax.text(0.02, 0.97, "t=0 s", transform=ax.transAxes, fontsize=9,
+                       va="top", bbox=dict(boxstyle="round", fc="white", alpha=0.7))
+
+    def update(fi):
+        T_cur = tr.snapshots[fi]
+        sc_unk.set_array(T_cur)
+        t_cur = tr.t_values[fi]
+        time_txt.set_text(f"t={t_cur:.1f} s   Tmax={float(T_cur.max()):.1f} C")
+        return [sc_unk, time_txt]
+
+    ani = animation.FuncAnimation(fig, update, frames=len(tr.snapshots),
+                                  interval=1000//fps, blit=True)
+    outpath = Path(outfile); outpath.parent.mkdir(parents=True, exist_ok=True)
+    ani.save(str(outpath), writer="pillow", dpi=dpi); plt.close(fig)
+    n = len(tr.snapshots)
+    return f"  -> GIF transiente salvo em {str(outpath)}  ({n} frames, {fps} fps)"
+
 # ---------------------------------------------------------------------------
 # Dispatcher principal
 # ---------------------------------------------------------------------------
@@ -872,7 +1001,9 @@ def executar(state, linha):
         "show_geom":       lambda: (state.geom.summary() if state.geom
                                     else "sem geometria."),
         "build_from_geom": lambda: cmd_build_from_geom(state, args),
-        "fluid_chain":     lambda: cmd_fluid_chain(state, args),
+        "fluid_chain":        lambda: cmd_fluid_chain(state, args),
+        "solve_transient":    lambda: cmd_solve_transient(state, args),
+        "gif_transient":      lambda: cmd_gif_transient(state, args),
         "viz":             lambda: cmd_viz(state, args),
         "gif":             lambda: cmd_gif_generico(state, args),
     }

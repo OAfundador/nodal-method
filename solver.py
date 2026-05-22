@@ -1,13 +1,20 @@
 """
 solver.py
 
-Solver estacionário para NodalNetwork.
+Solver para NodalNetwork — regime estacionário e transiente.
 
-Resolve:
+Regime permanente (solve_steady_state):
     R(T) = 0
-
-onde:
     R_i = Q_i + soma(fluxos entrando no nó i)
+
+Transiente (solve_transient):
+    C_i · dT_i/dt = R_i(T)
+
+    Integrado por Euler implícito:
+        C_i/dt · (T_i^{n+1} - T_i^n) - R_i(T^{n+1}) = 0
+
+    Nós ARITHMETIC têm C_i = 0 e são tratados como regime permanente
+    a cada passo (quasi-estático). Nós BOUNDARY mantêm temperatura fixa.
 
 Preferência:
 - usa scipy.optimize.root se SciPy estiver disponível;
@@ -16,7 +23,7 @@ Preferência:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 import numpy as np
 
@@ -210,6 +217,129 @@ def finite_difference_jacobian(func, z: np.ndarray) -> np.ndarray:
         J[:, k] = (fp - fm) / (2.0 * step)
 
     return J
+
+
+@dataclass
+class TransientResult:
+    """Resultado de solve_transient."""
+    t_values:   list        # [float] — instantes de tempo salvos
+    snapshots:  list        # [np.ndarray] — vetor T dos nós desconhecidos em cada instante
+    node_ids:   list        # [int] — IDs dos nós desconhecidos (mesma ordem dos vetores)
+    success:    bool
+    message:    str
+
+    def temperatures_at(self, step: int) -> dict:
+        """Retorna {node_id: T} no passo step."""
+        return dict(zip(self.node_ids, self.snapshots[step]))
+
+    def t_max_history(self) -> list:
+        """Temperatura máxima ao longo do tempo."""
+        return [float(s.max()) for s in self.snapshots]
+
+
+def _build_capacitance_vector(net) -> np.ndarray:
+    """Vetor C com ρ·cp·V para cada nó desconhecido (0 para aritméticos)."""
+    C = []
+    for node_id in net.unknown_node_ids():
+        node = net.nodes[node_id]
+        C.append(node.heat_capacity())
+    return np.array(C, dtype=float)
+
+
+def solve_transient(
+    net,
+    *,
+    t_end: float,
+    dt: float,
+    z0: Optional[np.ndarray] = None,
+    tol: float = 1e-6,
+    max_newton_iter: int = 30,
+    update_network: bool = True,
+    save_every: int = 1,
+) -> TransientResult:
+    """
+    Integração transiente por Euler implícito.
+
+    Parâmetros
+    ----------
+    net        : NodalNetwork com materiais, volumes e condição inicial em node.temperature.
+    t_end      : tempo final [s].
+    dt         : passo de tempo [s].
+    z0         : condição inicial (vetor de nós desconhecidos). Se None usa temperatures atuais.
+    tol        : tolerância Newton por passo.
+    max_newton_iter: iterações Newton máximas por passo.
+    update_network : se True, atualiza node.temperature a cada passo salvo.
+    save_every : salva snapshot a cada N passos.
+    """
+    if z0 is None:
+        z0 = net.initial_guess()
+    z = np.asarray(z0, dtype=float).copy()
+
+    C = _build_capacitance_vector(net)        # capacitâncias [W·s/K]
+    node_ids = list(net.unknown_node_ids())
+    n_steps  = max(1, int(round(t_end / dt)))
+
+    t_values  = [0.0]
+    snapshots = [z.copy()]
+    n_diverge = 0
+
+    for step in range(1, n_steps + 1):
+        t = step * dt
+        z_old = z.copy()
+
+        # Resíduo transiente: F(z_new) = C/dt*(z_new - z_old) - R(z_new) = 0
+        def residual_tr(z_new):
+            R = net.residual_steady(z_new)
+            return C / dt * (z_new - z_old) - R
+
+        # Newton com diferenças finitas
+        z_new = z_old.copy()
+        converged = False
+        for _ in range(max_newton_iter):
+            F = residual_tr(z_new)
+            norm_F = float(np.linalg.norm(F))
+            if norm_F <= tol:
+                converged = True
+                break
+            J = finite_difference_jacobian(residual_tr, z_new)
+            try:
+                dz = np.linalg.solve(J, -F)
+            except np.linalg.LinAlgError:
+                dz, *_ = np.linalg.lstsq(J, -F, rcond=None)
+            # busca linear simples
+            for alpha in (1.0, 0.5, 0.25, 0.1):
+                cand = z_new + alpha * dz
+                if np.linalg.norm(residual_tr(cand)) < norm_F:
+                    z_new = cand
+                    break
+            else:
+                z_new = z_new + 0.01 * dz
+
+        if not converged:
+            n_diverge += 1
+
+        z = z_new
+
+        if step % save_every == 0 or step == n_steps:
+            t_values.append(t)
+            snapshots.append(z.copy())
+            if update_network:
+                net.update_temperatures(z)
+
+    msg = f"{len(t_values)} snapshots, dt={dt}s, t_end={t_end}s"
+    if n_diverge:
+        msg += f" | AVISO: {n_diverge} passo(s) nao convergiram"
+
+    if update_network:
+        net.update_temperatures(z)
+
+    return TransientResult(
+        t_values=t_values,
+        snapshots=snapshots,
+        node_ids=node_ids,
+        success=(n_diverge == 0),
+        message=msg,
+    )
 
 
 def print_solution_summary(net, *, max_nodes: int = 30) -> None:

@@ -37,9 +37,6 @@ python exemplos/nodal_repl.py exemplos/comandos_canal_acoplado.txt
 # Troca de calor em tubo cilíndrico
 python exemplos/nodal_repl.py exemplos/comandos_tubo.txt
 
-# EC tipo placa — referência
-python exemplos/nodal_repl.py exemplos/interativo_reator.txt
-
 # Projeto Final TNR5703 — referência
 python exemplos/nodal_repl.py exemplos/interativo_projeto_final.txt
 ```
@@ -64,14 +61,6 @@ Digite comandos diretamente e resolva qualquer problema passo a passo:
 >>> viz png=minha_rede.png
 ```
 
-### 4. Demo rápida (sem arquivo)
-
-```bash
-python exemplos/nodal_repl.py --demo
-```
-
-Roda o exemplo do chip eletrônico (itens a e b) direto no terminal.
-
 ---
 
 ## Arquivos disponíveis
@@ -79,7 +68,6 @@ Roda o exemplo do chip eletrônico (itens a e b) direto no terminal.
 | Arquivo | Problema | Comandos-chave |
 |---|---|---|
 | `interativo_chip.txt` | Chip eletrônico Q=4W — validado contra o livro | `domain`, `region`, `source`, `bc`, `mesh`, `build_from_geom` |
-| `interativo_reator.txt` | EC tipo placa (UO2 + Zircaloy + água) | `material`, `node`, `link`, `fluid_chain`, `for..end` |
 | `interativo_projeto_final.txt` | Projeto Final TNR5703 — núcleo completo | `material`, `node`, `link`, `for..end`, `solve` |
 | `comandos_canal.txt` | Canal aquecido com transporte entálpico | `fluid_chain`, `node`, `link` |
 | `comandos_canal_acoplado.txt` | Dois canais acoplados por placa combustível | `node`, `link`, `fluid_chain` |
@@ -214,7 +202,6 @@ nodal-method/
 └── exemplos/
     ├── nodal_repl.py                   ← REPL genérico — ponto de entrada
     ├── interativo_chip.txt             ← chip eletrônico (validado)
-    ├── interativo_reator.txt           ← EC tipo placa (referência)
     ├── interativo_projeto_final.txt    ← Projeto Final TNR5703 (referência)
     ├── comandos_canal.txt              ← canal aquecido
     ├── comandos_canal_acoplado.txt     ← dois canais acoplados

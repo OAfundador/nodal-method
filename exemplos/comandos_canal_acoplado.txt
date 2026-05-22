@@ -17,13 +17,10 @@
 #              df=1e-3, dcl=0.5e-3
 #
 # Para executar:
-#   python exemplos/exemplo_chip_interativo.py --script exemplos/comandos_canal_acoplado.txt
+#   python exemplos/nodal_repl.py exemplos/comandos_canal_acoplado.txt
 #
-# NOTA: para o caso completo (n_axial=40, geometria real, modo cos/constante),
-#       use os comandos reator_* que ja encapsulam tudo:
-#         reator_config n_axial=40 vazao=3.0e-4 potencia=5000 modo=cos T_in=30 P_in=150000 dP=10000
-#         reator_solve
-#         reator_show
+# NOTA: para o caso completo (n_axial=40, geometria real, modo cos),
+#       veja interativo_projeto_final.txt (monta tudo via let/for/G_expr).
 
 # ============================================================
 # Materiais e condutancias
@@ -33,13 +30,13 @@ material zr    k=21.0  rho=6510  cp=278
 material agua  phase=fluid k=0.6 rho=997 cp=4182 mu=8.9e-4
 
 # G_cond combustivel->cladding: k_uo2, A=Lx*dz=0.5*0.02167, L=df/2=5e-4
-g_cond k=3.6   A=0.010833 L=5.0e-4
+let G_cond_fuel = conduction_G(3.6, 0.010833, 5.0e-4)
 
 # G_cond cladding->canal: k_zr, A=Lx*dz, L=dcl/2=2.5e-4
-g_cond k=21.0  A=0.010833 L=2.5e-4
+let G_cond_clad = conduction_G(21.0, 0.010833, 2.5e-4)
 
 # G_conv canal: h*A = 2e4 * Lx*dz = 2e4 * 0.010833
-g_conv h=20000 A=0.010833
+let G_conv_chan = convection_G(20000, 0.010833)
 
 # ============================================================
 # CAMADA 1  (j=1, entrada do canal)
@@ -50,10 +47,10 @@ node Ts_d1 diffusion T_init=30
 node Cl_e1 fluid     T_init=30
 node Cl_d1 fluid     T_init=30
 
-link Tf1   Ts_e1 cond G=77.99
-link Tf1   Ts_d1 cond G=77.99
-link Ts_e1 Cl_e1 conv G=216.67
-link Ts_d1 Cl_d1 conv G=216.67
+link Tf1   Ts_e1 cond G=$G_cond_fuel
+link Tf1   Ts_d1 cond G=$G_cond_fuel
+link Ts_e1 Cl_e1 conv G=$G_conv_chan
+link Ts_d1 Cl_d1 conv G=$G_conv_chan
 
 # ============================================================
 # CAMADA 2  (j=2, meio do canal)
@@ -64,10 +61,10 @@ node Ts_d2 diffusion T_init=30
 node Cl_e2 fluid     T_init=30
 node Cl_d2 fluid     T_init=30
 
-link Tf2   Ts_e2 cond G=77.99
-link Tf2   Ts_d2 cond G=77.99
-link Ts_e2 Cl_e2 conv G=216.67
-link Ts_d2 Cl_d2 conv G=216.67
+link Tf2   Ts_e2 cond G=$G_cond_fuel
+link Tf2   Ts_d2 cond G=$G_cond_fuel
+link Ts_e2 Cl_e2 conv G=$G_conv_chan
+link Ts_d2 Cl_d2 conv G=$G_conv_chan
 
 # ============================================================
 # CAMADA 3  (j=3, saida do canal)
@@ -78,10 +75,10 @@ node Ts_d3 diffusion T_init=30
 node Cl_e3 fluid     T_init=30
 node Cl_d3 fluid     T_init=30
 
-link Tf3   Ts_e3 cond G=77.99
-link Tf3   Ts_d3 cond G=77.99
-link Ts_e3 Cl_e3 conv G=216.67
-link Ts_d3 Cl_d3 conv G=216.67
+link Tf3   Ts_e3 cond G=$G_cond_fuel
+link Tf3   Ts_d3 cond G=$G_cond_fuel
+link Ts_e3 Cl_e3 conv G=$G_conv_chan
+link Ts_d3 Cl_d3 conv G=$G_conv_chan
 
 # ============================================================
 # Transporte entalpico: dois canais paralelos (entrada a 30 degC)
