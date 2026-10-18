@@ -8,3 +8,15 @@ saidas_projeto_final/
 saidas_nucleo/
 nodal-method-main/
 reator_placa/
+.deps/
+tmp/
+saidas_comparacao/
+.pytest_cache/
+
+# Local cases and their analysis stay outside the public repository.
+/comparacao/
+/comparar_trabalho.py
+/requirements-comparacao.txt
+/REVISAO.md
+/tests/test_atfdrn.py
+*.pdf

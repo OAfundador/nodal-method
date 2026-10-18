@@ -215,15 +215,16 @@ class ThermalNode:
     def add_source(self, Q: float) -> None:
         self.source += float(Q)
 
-    def heat_capacity(self, pressure: Optional[float] = None) -> float:
+    def heat_capacity(self, pressure: Optional[float] = None, *, temperature: Optional[float] = None) -> float:
         if not self.has_capacitance():
             return 0.0
 
         if self.material is None:
             raise ValueError(f"Nó {self.name!r} não possui material.")
 
-        rho = density(self.material, self.temperature, pressure)
-        cp = specific_heat(self.material, self.temperature, pressure)
+        local_temperature = self.temperature if temperature is None else temperature
+        rho = density(self.material, local_temperature, pressure)
+        cp = specific_heat(self.material, local_temperature, pressure)
         return rho * cp * self.volume
 
 
@@ -407,18 +408,24 @@ class NodalNetwork:
 
     def residual_steady(self, z: np.ndarray) -> np.ndarray:
         T = self.temperature_map_from_vector(z)
-        residuals = []
+        unknowns = self.unknown_node_ids()
+        balances = {node_id: self.nodes[node_id].source for node_id in unknowns}
 
-        for node_id in self.unknown_node_ids():
-            node = self.nodes[node_id]
-            balance = node.source
+        # Uma passagem pelas ligações; G(T) é a mesma nas duas extremidades.
+        # Isso evita procurar todas as ligações novamente para cada nó.
+        for link in self.links:
+            i, j = link.node_i, link.node_j
+            if i not in balances and j not in balances:
+                continue
+            flux = link.G(T) * (T[j] - T[i])
+            if not isinstance(link.direction, LinkDirection):
+                raise ValueError(f"Direção inválida na ligação {link.name!r}.")
+            if i in balances and link.direction != LinkDirection.I_TO_J:
+                balances[i] += flux
+            if j in balances and link.direction != LinkDirection.J_TO_I:
+                balances[j] -= flux
 
-            for link in self.links_of(node_id):
-                balance += link.flux_into(node_id, T)
-
-            residuals.append(balance)
-
-        return np.array(residuals, dtype=float)
+        return np.array([balances[node_id] for node_id in unknowns], dtype=float)
 
     def update_temperatures(self, z: np.ndarray) -> None:
         """
@@ -1120,7 +1127,7 @@ def apply_external_boundary_conditions(
                 node.add_source(q_in * area)
                 continue
 
-            if kind in ("convection", "convective"):
+            if kind in ("convection", "convective", "convection_radiation"):
                 h = get_h_from_data(data)
                 T_inf = get_temperature_from_data(data, keys=("T_inf", "t_inf", "T", "temperature", "value"))
 
@@ -1168,6 +1175,25 @@ def apply_external_boundary_conditions(
                     conductance=convection_G(h, area),
                     metadata={"side": side, "h": h, "area": area},
                 )
+                if kind == "convection_radiation":
+                    # As duas trocas partem da MESMA temperatura de superfície.
+                    # Duplicar a resistência de meia célula criaria duas paredes.
+                    T_env = get_temperature_from_data(data, keys=("T_env",))
+                    emissivity = float(data.get("emissivity", data.get("epsilon", 1.0)))
+                    view_factor = float(data.get("view_factor", data.get("F", 1.0)))
+                    environment = net.add_node(
+                        name=f"RADENV_{side}_{j}_{i}", kind=NodeKind.BOUNDARY,
+                        x=face_x, y=face_y, fixed_temperature=T_env, temperature=T_env,
+                        metadata={"type": "radiation_environment", "side": side, "bc": data},
+                    )
+                    net.add_link(
+                        node_i=surface, node_j=environment, kind=TransferKind.RADIATION,
+                        name=f"rad_Sbc{surface}_to_ENV{environment}",
+                        conductance_func=radiation_func_between_nodes(
+                            surface, environment, emissivity, area, view_factor),
+                        metadata={"side": side, "area": area, "emissivity": emissivity,
+                                  "view_factor": view_factor},
+                    )
                 continue
 
             if kind in ("radiation", "rad"):

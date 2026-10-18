@@ -23,7 +23,7 @@ Preferência:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 
@@ -69,6 +69,20 @@ def solve_steady_state(
     else:
         z0 = np.asarray(z0, dtype=float)
 
+    if not np.isfinite(tol) or tol <= 0:
+        raise ValueError("tol deve ser finita e positiva.")
+    if not isinstance(max_iter, (int, np.integer)) or max_iter <= 0:
+        raise ValueError("max_iter deve ser um inteiro positivo.")
+    if z0.ndim != 1 or len(z0) != len(net.unknown_node_ids()):
+        raise ValueError("z0 deve conter uma temperatura por nó desconhecido.")
+    if not np.all(np.isfinite(z0)):
+        raise ValueError("z0 deve conter apenas temperaturas finitas.")
+    if len(z0) == 0:
+        if update_network:
+            net.update_temperatures(z0)
+        return SolverResult(True, "Não há temperaturas desconhecidas.", z0.copy(),
+                            np.array([], dtype=float), 0.0, 0)
+
     if prefer_scipy:
         try:
             return _solve_with_scipy(
@@ -104,7 +118,7 @@ def _solve_with_scipy(
         net.residual_steady,
         z0,
         method="hybr",
-        options={"maxfev": max_iter * max(1, len(z0) + 1), "xtol": tol},
+        options={"maxfev": max_iter * max(1, len(z0) + 1), "xtol": min(tol, 1e-11)},
     )
 
     residual = net.residual_steady(sol.x)
@@ -113,7 +127,15 @@ def _solve_with_scipy(
     # Algumas vezes o scipy marca "not making good progress" mesmo com
     # resíduo numericamente pequeno. Para o método nodal, aceitamos a solução
     # se a norma do resíduo estiver abaixo do critério.
-    success = residual_norm <= max(tol * 10.0, 1e-7)
+    success = bool(np.isfinite(residual_norm) and residual_norm <= tol)
+
+    # xtol do SciPy mede o passo relativo em T, não o balanço em W.
+    # Refina a solução quando ela ainda não satisfaz a tolerância física pedida.
+    if not success and np.all(np.isfinite(sol.x)):
+        refined = _solve_with_newton_fd(net, z0=sol.x, tol=tol, max_iter=max_iter,
+                                        update_network=update_network)
+        refined.message = "SciPy seguido de Newton: " + refined.message
+        return refined
 
     # Sempre grava a melhor solução encontrada (igual ao Newton FD).
     # O chamador pode verificar sol.success para saber se convergiu.
@@ -187,8 +209,10 @@ def _solve_with_newton_fd(
         net.update_temperatures(z)
 
     return SolverResult(
-        success=False,
-        message="Newton com diferenças finitas atingiu max_iter sem convergir.",
+        success=bool(np.isfinite(norm_r) and norm_r <= tol),
+        message=("Convergiu na última atualização do Newton."
+                 if norm_r <= tol else
+                 "Newton com diferenças finitas atingiu max_iter sem convergir."),
         x=z,
         residual=r,
         residual_norm=norm_r,
@@ -237,12 +261,13 @@ class TransientResult:
         return [float(s.max()) for s in self.snapshots]
 
 
-def _build_capacitance_vector(net) -> np.ndarray:
+def _build_capacitance_vector(net, z=None) -> np.ndarray:
     """Vetor C com ρ·cp·V para cada nó desconhecido (0 para aritméticos)."""
     C = []
+    temperatures = net.temperature_map_from_vector(z) if z is not None else None
     for node_id in net.unknown_node_ids():
         node = net.nodes[node_id]
-        C.append(node.heat_capacity())
+        C.append(node.heat_capacity(temperature=temperatures[node_id] if temperatures is not None else None))
     return np.array(C, dtype=float)
 
 
@@ -271,26 +296,45 @@ def solve_transient(
     update_network : se True, atualiza node.temperature a cada passo salvo.
     save_every : salva snapshot a cada N passos.
     """
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError("dt deve ser finito e positivo.")
+    if not np.isfinite(t_end) or t_end < 0:
+        raise ValueError("t_end deve ser finito e não negativo.")
+    if not np.isfinite(tol) or tol <= 0:
+        raise ValueError("tol deve ser finita e positiva.")
+    if not isinstance(save_every, (int, np.integer)) or save_every <= 0:
+        raise ValueError("save_every deve ser um inteiro positivo.")
+    if not isinstance(max_newton_iter, (int, np.integer)) or max_newton_iter <= 0:
+        raise ValueError("max_newton_iter deve ser um inteiro positivo.")
     if z0 is None:
         z0 = net.initial_guess()
     z = np.asarray(z0, dtype=float).copy()
+    if z.ndim != 1 or len(z) != len(net.unknown_node_ids()) or not np.all(np.isfinite(z)):
+        raise ValueError("z0 deve conter uma temperatura finita por nó desconhecido.")
 
-    C = _build_capacitance_vector(net)        # capacitâncias [W·s/K]
     node_ids = list(net.unknown_node_ids())
-    n_steps  = max(1, int(round(t_end / dt)))
+    step_ratio = t_end / dt
+    n_steps = int(np.ceil(step_ratio))
+    # Um múltiplo exato pode aparecer como 45.00000000000001 em ponto
+    # flutuante. Não criar um passo extra de ~1e-17 s nesse caso.
+    nearest_steps = round(step_ratio)
+    if nearest_steps > 0 and abs(step_ratio - nearest_steps) <= 8 * np.spacing(step_ratio):
+        n_steps = nearest_steps
 
     t_values  = [0.0]
     snapshots = [z.copy()]
     n_diverge = 0
 
     for step in range(1, n_steps + 1):
-        t = step * dt
+        t = t_end if step == n_steps else step * dt
+        step_dt = t - (step - 1) * dt
         z_old = z.copy()
 
         # Resíduo transiente: F(z_new) = C/dt*(z_new - z_old) - R(z_new) = 0
         def residual_tr(z_new):
             R = net.residual_steady(z_new)
-            return C / dt * (z_new - z_old) - R
+            C = _build_capacitance_vector(net, z_new)
+            return C / step_dt * (z_new - z_old) - R
 
         # Newton com diferenças finitas
         z_new = z_old.copy()
@@ -315,6 +359,8 @@ def solve_transient(
             else:
                 z_new = z_new + 0.01 * dz
 
+        # A última atualização de Newton também pode satisfazer o critério.
+        converged = converged or float(np.linalg.norm(residual_tr(z_new))) <= tol
         if not converged:
             n_diverge += 1
 

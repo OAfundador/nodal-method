@@ -14,6 +14,7 @@ Uso:
 
 from __future__ import annotations
 import csv as _csv
+import argparse
 import math as _math
 import shlex
 import sys
@@ -117,6 +118,7 @@ LINK_KIND_MAP = {
     "conv": TransferKind.CONVECTION,
     "fluid": TransferKind.FLUID_TRANSPORT,
     "rad": TransferKind.RADIATION,
+    "equiv": TransferKind.EQUIVALENT,
 }
 
 HELP = """
@@ -161,6 +163,8 @@ HELP = """
        T_in cria no BOUNDARY de entrada automaticamente.
   show             Resumo da rede (nos e ligacoes)
   solve            Resolve estado permanente (Newton-Raphson)
+                   [tol=1e-8] [max_iter=500] [linhas=20]
+  export csv=arquivo.csv  Exporta todos os nós (temperatura em C e K)
   reset            Limpa rede, geometria e materiais
 
 --- CONDUTANCIAS ---
@@ -288,6 +292,7 @@ def cmd_let(state, raw):
 def cmd_reset_net(state):
     """Zera apenas a rede (nos, links, ids). Preserva materiais/vars/geom."""
     state.net = NodalNetwork(); state.ids = {}; state.x_counter = 0.0
+    state.last_result = None
     return "  rede zerada (materiais/vars/geom preservados)."
 
 def _parse_for_header(line):
@@ -308,6 +313,7 @@ class EstadoREPL:
         self.materials = {}
         self.vars = {}          # let var = expr
         self.for_stack = []     # bloco for ... end
+        self.last_result = None
 
     def reset(self):
         self.__init__()
@@ -325,6 +331,8 @@ def parse_kwargs(tokens, lower_keys=True):
 def fnum(s): return float(str(s).replace(",", "."))
 
 def cmd_node(state, args):
+    if len(args) < 2:
+        raise ValueError("uso: node <nome> <tipo> [Q=v] [T_fixed=v] [V=v]")
     nome, tipo = args[0], args[1].lower()
     if tipo not in NODE_KIND_MAP: raise ValueError(f"tipo invalido: {tipo!r}")
     if nome in state.ids: raise ValueError(f"no {nome!r} ja existe.")
@@ -359,6 +367,8 @@ def cmd_node(state, args):
     return f"  -> no {nome} criado (id={nid}, kind={kind.value})"
 
 def cmd_link(state, args):
+    if len(args) < 3:
+        raise ValueError("uso: link <a> <b> <tipo> G=v [dir=fwd|bwd|undirected]")
     a, b, tipo = args[0], args[1], args[2].lower()
     kw = parse_kwargs(args[3:])
     dir_map = {
@@ -367,7 +377,11 @@ def cmd_link(state, args):
         "undirected": LinkDirection.UNDIRECTED,
     }
     dir_kw    = kw.get("dir", "undirected").lower()
-    direction = dir_map.get(dir_kw, LinkDirection.UNDIRECTED)
+    if dir_kw not in dir_map:
+        raise ValueError("dir deve ser fwd, bwd ou undirected.")
+    direction = dir_map[dir_kw]
+    if tipo not in LINK_KIND_MAP:
+        raise ValueError(f"tipo de ligação inválido: {tipo!r}")
     if "g_expr" in kw:
         expr_str       = kw["g_expr"]
         materials_objs = {nm: _material_from_props(nm, p)
@@ -397,16 +411,47 @@ def cmd_link(state, args):
 
 def cmd_show(state): return state.net.summary(max_nodes=20, max_links=30)
 
-def cmd_solve(state):
+def cmd_solve(state, args=None):
     if len(state.net.nodes) == 0: return "  rede vazia."
-    r = solve_steady_state(state.net, tol=1e-9, max_iter=500)
+    kw = parse_kwargs(args or [])
+    unknown = set(kw) - {"tol", "max_iter", "linhas"}
+    if unknown:
+        raise ValueError("opção de solve desconhecida: " + ", ".join(sorted(unknown)))
+    tol = fnum(kw.get("tol", "1e-8"))
+    max_iter = int(kw.get("max_iter", "500"))
+    rows = int(kw.get("linhas", "20"))
+    if rows < 0:
+        raise ValueError("linhas deve ser não negativo.")
+    r = solve_steady_state(state.net, tol=tol, max_iter=max_iter)
+    state.last_result = r
+    if not r.success:
+        raise RuntimeError(f"não convergiu: |R|={r.residual_norm:.3e}, tol={tol:g}. {r.message}")
     out = [f"  convergiu={r.success}, |R|={r.residual_norm:.2e}, iter={r.iterations}"]
-    if state.ids:
-        out += ["", "  Temperaturas:"] + [
-            f"    {n:8s} = {state.net.nodes[i].temperature:9.4f} C"
-            for n, i in state.ids.items()
-        ]
+    nodes = list(state.net.nodes.values())
+    if nodes:
+        out += ["", "  Temperaturas:"]
+        out += [f"    {node.name:20s} = {node.temperature:9.4f} C" for node in nodes[:rows]]
+        if len(nodes) > rows:
+            out.append(f"    ... {len(nodes) - rows} nós omitidos. Use export csv=arquivo.csv.")
+        hottest = max(nodes, key=lambda node: node.temperature)
+        out.append(f"  Máxima: {hottest.temperature:.4f} C ({hottest.temperature + 273.15:.4f} K), nó {hottest.name}.")
     return "\n".join(out)
+
+
+def cmd_export(state, args):
+    kw = parse_kwargs(args)
+    if set(kw) != {"csv"}:
+        raise ValueError("uso: export csv=arquivo.csv")
+    path = Path(kw["csv"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as stream:
+        writer = _csv.writer(stream)
+        writer.writerow(["id", "nome", "tipo", "material", "x_m", "y_m", "z_m", "temperatura_C", "temperatura_K"])
+        for node in state.net.nodes.values():
+            writer.writerow([node.id, node.name, node.kind.value,
+                             getattr(node.material, "name", ""), node.x, node.y, node.z,
+                             node.temperature, node.temperature + 273.15])
+    return f"  -> {len(state.net.nodes)} nós exportados para {path}"
 
 def _req(state):
     if not state.geom: raise ValueError("Use domain W= H= primeiro.")
@@ -485,6 +530,8 @@ def cmd_material(state, args):
         props["t_sat_expr"] = kw["t_sat_expr"]
 
     if "phase" in kw:
+        if kw["phase"].lower() not in ("solid", "fluid"):
+            raise ValueError("phase deve ser solid ou fluid.")
         props["phase"] = kw["phase"].lower()
     if not props.get("phase"):
         props["phase"] = "solid"
@@ -957,22 +1004,29 @@ def executar(state, linha):
             frame = state.for_stack.pop(); outs = []
             ns = _expr_namespace(state)
             lo = int(eval(frame["lo"], ns)); hi = int(eval(frame["hi"], ns))
-            saved = state.vars.get(frame["var"])
-            for v in range(lo, hi + 1):
-                state.vars[frame["var"]] = v
-                for bline in frame["lines"]:
-                    r, stop = executar(state, bline)
-                    if r: outs.append(r)
+            missing = object()
+            saved = state.vars.get(frame["var"], missing)
+            stop = False
+            try:
+                for v in range(lo, hi + 1):
+                    state.vars[frame["var"]] = v
+                    for bline in frame["lines"]:
+                        r, stop = executar(state, bline)
+                        if r: outs.append(r)
+                        if stop: break
                     if stop: break
-            if saved is None: state.vars.pop(frame["var"], None)
-            else: state.vars[frame["var"]] = saved
-            return "\n".join(outs), False
+            finally:
+                if saved is missing: state.vars.pop(frame["var"], None)
+                else: state.vars[frame["var"]] = saved
+            return "\n".join(outs), stop
         if low.startswith("for "):
             top["depth"] = top.get("depth", 0) + 1
             top["lines"].append(raw); return "", False
         top["lines"].append(raw); return "", False
     if raw.lower().startswith("for "):
         state.for_stack.append(_parse_for_header(raw)); return "", False
+    if raw.lower() == "end":
+        raise ValueError("end sem um bloco for aberto.")
 
     # Interpolacao $var e $(expr)
     raw = _interpolate(raw, state)
@@ -981,14 +1035,18 @@ def executar(state, linha):
     if raw.lower().startswith("let "):
         return cmd_let(state, raw[4:]), False
 
-    tokens = shlex.split(raw); cmd = tokens[0].lower(); args = tokens[1:]
+    tokens = shlex.split(raw, comments=True)
+    if not tokens:
+        return "", False
+    cmd = tokens[0].lower(); args = tokens[1:]
     if cmd in ("quit","exit","q"): return "Saindo.", True
     cmds = {
         "help":            lambda: HELP,
         "reset":           lambda: state.reset() or "  rede zerada.",
         "reset_net":       lambda: cmd_reset_net(state),
         "show":            lambda: cmd_show(state),
-        "solve":           lambda: cmd_solve(state),
+        "solve":           lambda: cmd_solve(state, args),
+        "export":          lambda: cmd_export(state, args),
         "node":            lambda: cmd_node(state, args),
         "link":            lambda: cmd_link(state, args),
         "g_cond":          lambda: cmd_gcond(args),
@@ -1048,23 +1106,50 @@ def rodar_demo():
             print(f"  ERRO: {e}")
 
 
-def rodar_arquivo(caminho):
-    state = EstadoREPL()
-    print("="*72 + f"\nExecutando: {caminho}\n" + "="*72)
-    with open(caminho) as f:
-        linhas = f.readlines()
-    for linha in linhas:
-        raw = linha.rstrip()
-        if not raw or raw.lstrip().startswith("#"):
-            if raw: print(f"  {raw}")
-            continue
-        print(f"\n>>> {raw}")
-        try:
-            r, stop = executar(state, raw)
-            if r: print(r)
-            if stop: break
-        except Exception as e:
-            print(f"  ERRO: {e}")
+class CaseRunner:
+    """Executa um caso com estado próprio e diagnóstico de arquivo/linha.
+
+    A execução não imprime: o chamador escolhe como apresentar cada comando
+    e resposta por meio de on_output. O REPL e seus comandos continuam
+    disponíveis para os arquivos antigos.
+    """
+
+    def __init__(self, state=None):
+        self.state = state if state is not None else EstadoREPL()
+
+    def run_lines(self, lines, *, source="<caso>", on_output=None):
+        for number, line in enumerate(lines, 1):
+            raw = line.rstrip()
+            try:
+                output, stop = executar(self.state, raw)
+            except Exception as error:
+                raise ValueError(f"{source}:{number}: {error}") from error
+            if on_output:
+                on_output(raw, output)
+            if stop:
+                break
+        if self.state.for_stack:
+            raise ValueError(f"{source}: bloco for sem end no fim do arquivo.")
+        return self.state
+
+    def run_file(self, path, *, on_output=None):
+        with Path(path).open(encoding="utf-8-sig") as stream:
+            return self.run_lines(stream, source=str(path), on_output=on_output)
+
+    def export_csv(self, path):
+        return cmd_export(self.state, ["csv=" + str(path)])
+
+
+def rodar_arquivo(caminho, *, quiet=False):
+    if not quiet:
+        print("="*72 + f"\nExecutando: {caminho}\n" + "="*72)
+    def show(raw, output):
+        if not quiet and raw:
+            print(f"\n>>> {raw}")
+        command = raw.strip().split(maxsplit=1)[0].lower() if raw.strip() else ""
+        if output and (not quiet or command in {"solve", "export", "viz", "gif"}):
+            print(output)
+    return CaseRunner().run_file(caminho, on_output=show)
 
 
 def rodar_repl():
@@ -1083,8 +1168,31 @@ def rodar_repl():
             print(f"  ERRO: {e}")
 
 
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Método Nodal: execute um caso ou abra o prompt interativo.")
+    parser.add_argument("arquivo", nargs="?", help="arquivo .txt com os comandos do caso")
+    parser.add_argument("--quiet", action="store_true", help="mostra apenas soluções e arquivos gerados")
+    parser.add_argument("--listar", action="store_true", help="lista os exemplos disponíveis")
+    parser.add_argument("--csv", help="exporta as temperaturas ao terminar")
+    args = parser.parse_args(argv)
+    if args.listar:
+        for path in sorted((ROOT / "exemplos").glob("*.txt")):
+            print(path.relative_to(ROOT))
+        return 0
+    if args.csv and not args.arquivo:
+        parser.error("--csv precisa de um arquivo de caso")
+    try:
+        if args.arquivo:
+            state = rodar_arquivo(args.arquivo, quiet=args.quiet)
+            if args.csv:
+                print(cmd_export(state, ["csv=" + args.csv]))
+        else:
+            rodar_repl()
+    except (OSError, ValueError, RuntimeError) as error:
+        print(f"ERRO: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        rodar_arquivo(sys.argv[1])
-    else:
-        rodar_repl()
+    sys.exit(main())

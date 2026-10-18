@@ -1,8 +1,74 @@
 # Método Nodal em Python
 
-Implementação do método nodal para transferência de calor em regime estacionário. Resolve redes nodais genéricas com condução, convecção e transporte entálpico de fluido, com suporte a geometria 2D automática.
+Ferramenta em Python para montar e resolver redes térmicas com condução, convecção, radiação e transporte entálpico de fluido. Inclui editor visual de regiões retangulares, montagem automática da malha 2D e um núcleo para regime permanente e transiente.
 
 Baseado em **Transferência de Calor Computacional — Método Nodal** (J. L. Ferraz Bastos & D. A. de Andrade, IPEN/CNEN-SP).
+
+---
+
+## Editor visual local
+
+Instale as dependências uma vez:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+No Windows, abra **`iniciar_visual.bat`**, ou execute:
+
+```bash
+python app_visual.py
+```
+
+O navegador abre em `http://127.0.0.1:8765`. Mantenha o terminal aberto enquanto usa a ferramenta. Os cálculos usam o solver Python deste repositório; a interface não depende de serviços externos, CDNs ou publicação.
+
+1. Em **Materiais**, cadastre nome, fase e propriedades. Para condução estacionária, `k` é obrigatório; `rho`, `cp` e `mu` são opcionais. Também é possível informar os coeficientes de `k(T)`.
+2. Selecione um material e use **Retângulo**: clique e arraste para desenhar. Também pode arrastar um cartão de material para a área de desenho. Use **Selecionar** para mover; os quatro cantos permitem redimensionar. O painel à direita aceita coordenadas e dimensões exatas.
+3. Encoste as regiões, sem sobreposição. O encaixe na grade ajuda a alinhar as bordas. Defina a geração de calor de cada região, se houver.
+4. Em **Contornos**, configure temperatura, convecção, radiação, convecção + radiação, fluxo imposto ou isolamento nas faces externas do domínio. Para radiação, informe emissividade, fator de vista e temperatura radiativa; no caso combinado, informe também h e a temperatura do fluido. Em **Malha**, escolha `nx` e `ny` e clique em **Gerar malha**. As faces verdes indicam o contato entre regiões.
+5. Clique em **Resolver modelo** para obter o mapa e o perfil de temperaturas. **Exportar CSV** salva as temperaturas dos centros das células. **Salvar modelo** e **Abrir modelo** preservam/restauram os dados em JSON.
+
+A interface mostra comprimentos em **mm**, temperaturas em **°C** e propriedades em SI. O JSON e o núcleo numérico usam comprimentos em **m**. Áreas vazias são omitidas e suas bordas internas são isoladas; os contornos configuráveis pertencem às faces externas do domínio. O editor calcula regime permanente, com até 900 células e 1600 incógnitas. Uma região desconectada de qualquer referência térmica é rejeitada.
+
+Para regiões fluidas, informe `cp`, vazão **mássica**, direção e temperatura de entrada no painel da região. Na interface sólido-fluido, informe também `h` interno. O transporte é distribuído entre as cadeias paralelas da região. Não há cálculo automático de vazão, queda de pressão ou coeficiente de convecção a partir de correlações no editor.
+
+O menu oferece **parede uniforme**, **parede composta**, a **geometria 2D do chip** e o **NAFEMS T4** com ponto de avaliação na superfície. O botão **Benchmarks** executa os quatro casos do livro, os casos públicos NAFEMS/TMAP8 e a placa com geração, convecção e radiação de Onur & Sivrioglu, descritos em [BENCHMARKS.md](BENCHMARKS.md). As equações desse artigo foram verificadas, mas há divergências com alguns patamares de seus gráficos. Atalhos: `V` seleciona, `R` desenha, `Del` exclui a região selecionada e `Ctrl+Z` desfaz uma alteração. A ferramenta também permite apagar ou redimensionar uma região pelo painel de propriedades.
+
+Se a porta estiver ocupada, use `python app_visual.py --porta 8766`. Para iniciar sem abrir o navegador, acrescente `--sem-abrir`.
+
+## Executar os benchmarks e testes
+
+```bash
+python -m pip install -r requirements.txt
+python validacao_livro.py
+python validacao_online.py
+python validacao_onur.py
+python -m unittest discover -s tests -v
+```
+
+Os benchmarks verificam os balanços e a redução do erro ao refinar a malha ou o passo de tempo. A suíte também cobre os exemplos antigos, entradas inválidas, exportação e a API local.
+
+`validacao_onur.py` gera `saidas_comparacao/onur.html`, curvas e históricos adimensionais das duas faces, com os parâmetros das figuras 2 e 5 de Onur & Sivrioglu (1993). Também é possível gerar o relatório pelo botão **Benchmarks** do editor. A análise explicita diferenças entre as equações e a figura 8, sem ajustar parâmetros para forçar uma reprodução.
+
+## Exemplo de saída: placa de reator
+
+Resultados calculados pela rede nodal para um caso local com 51 pontos axiais, no canal 14. A saída corresponde ao plano z=−0,300 m.
+
+| Perfil de geração | Máxima no combustível [K] | Fluido na saída [°C] | Combustível na saída [°C] |
+| --- | ---: | ---: | ---: |
+| Cossenoidal | 359,3492 | 45,0149 | 45,0149 |
+| Constante | 347,5215 | 45,0200 | 74,3715 |
+
+O [CSV dos resultados](resultados/placa_reator.csv) inclui as máximas e as temperaturas de saída dos quatro componentes. Os arquivos de entrada desse caso permanecem locais. A tabela registra a saída calculada sob as hipóteses desse modelo; as verificações reproduzíveis com os dados publicados estão em [BENCHMARKS.md](BENCHMARKS.md).
+
+## Melhorias desta versão
+
+- Editor com cadastro de materiais, desenho, movimento e redimensionamento de regiões, malha conectada e mapa de temperaturas.
+- Contornos de temperatura, fluxo, isolamento, convecção, radiação e convecção + radiação na mesma superfície.
+- Execução de arquivos organizada em `CaseRunner`, com mensagens de erro por linha e exportação CSV.
+- Opções de tolerância e iteração do REPL aplicadas ao solver; convergência conferida pelo resíduo do balanço.
+- Transiente com último passo ajustado ao tempo final, tratamento do arredondamento decimal e capacitâncias reavaliadas durante a solução.
+- Testes de regressão, balanço de energia e refinamento contra soluções analíticas e referências públicas.
 
 ---
 
@@ -40,6 +106,8 @@ python exemplos/nodal_repl.py exemplos/comandos_tubo.txt
 # Projeto Final TNR5703 — referência
 python exemplos/nodal_repl.py exemplos/interativo_projeto_final.txt
 ```
+
+Use `--quiet` para reduzir a saída, `--csv arquivo.csv` para exportar os nós e `--listar` para listar os exemplos. Erros em arquivos interrompem a execução, com nome do arquivo e número da linha, e retornam código de saída diferente de zero.
 
 ### 3. Modo interativo (prompt `>>>`)
 
@@ -84,6 +152,9 @@ Digite comandos diretamente e resolva qualquer problema passo a passo:
 | `condutancias.py` | `conduction_G`, `convection_G`, série/paralelo |
 | `nos.py` | `NodalNetwork` — monta o resíduo `R(T)` e gerencia os links |
 | `solver.py` | `solve_steady_state` — Newton-FD com fallback `scipy.optimize.root` |
+| `visual/` | Modelo validado, servidor local e interface do editor |
+| `app_visual.py` | Inicia o editor no navegador |
+| `validacao_*.py` | Casos de referência e geração dos relatórios |
 
 ### Uso direto via Python
 
@@ -92,8 +163,8 @@ from nos import NodalNetwork, NodeKind, TransferKind
 from solver import solve_steady_state
 
 net = NodalNetwork()
-Tc = net.add_node("Tc", NodeKind.DIFFUSION, volume=1e-6, source=4.0)
-Tp = net.add_node("Tp", NodeKind.BOUNDARY,  fixed_temperature=44.0)
+Tc = net.add_node("Tc", NodeKind.DIFFUSION, x=0, y=0, volume=1e-6, source=4.0)
+Tp = net.add_node("Tp", NodeKind.BOUNDARY, x=1, y=0, fixed_temperature=44.0)
 net.add_link(Tc, Tp, TransferKind.CONDUCTION, conductance=0.17908)
 
 result = solve_steady_state(net, tol=1e-10)
@@ -137,6 +208,8 @@ link <a> <b> <tipo> G=v [dir=fwd|bwd|undirected]
 fluid_chain n1 n2 [n3...] mdot=v cp=v [T_in=v]
 show
 solve
+solve tol=1e-8 max_iter=500 linhas=20
+export csv=temperaturas.csv
 reset / reset_net
 ```
 
@@ -180,12 +253,15 @@ gif  [gif=arquivo.gif] [fps=10] [steps=40] [dpi=100]
 
 ## Validação — Chip eletrônico
 
-Componente de Q = 4 W sobre substrato de cobre. Dois casos do Capítulo V do livro:
+Componente de Q = 4 W sobre substrato de cobre. Três casos do Capítulo V do livro:
 
 | Caso | Livro | Este código |
 |---|---|---|
-| (a) só condução | 66,3 °C | **66,34 °C** ✓ |
-| (b) + convecção h=30 W/m²K | 60,266 °C | **60,27 °C** ✓ |
+| (a) só condução, modelo concentrado | 66,3 °C | **66,3375 °C** |
+| (b) + convecção h=30 W/m²K | 60,3 °C | **60,2663 °C** |
+| (e) + radiação | 59,1 °C | **59,0782 °C** |
+
+Esses valores usam a rede concentrada do exercício 1 do livro. O arquivo `interativo_chip.txt` e o exemplo visual distribuem a geração em uma geometria 2D e resultam em **66,4854 °C**: não são a mesma discretização do modelo concentrado. O quarto benchmark do livro é a esfera em resfriamento (exercício 2), comparada à solução exponencial exata e com refinamento temporal.
 
 ---
 
@@ -193,12 +269,21 @@ Componente de Q = 4 W sobre substrato de cobre. Dois casos do Capítulo V do liv
 
 ```
 nodal-method/
+├── app_visual.py                      ← abre o editor visual
+├── iniciar_visual.bat                 ← atalho para Windows
 ├── condutancias.py
 ├── geometria.py
 ├── materiais.py
 ├── nos.py
 ├── solver.py
 ├── requirements.txt
+├── BENCHMARKS.md                      ← fontes, resultados e critérios
+├── validacao_livro.py
+├── validacao_online.py
+├── validacao_onur.py
+├── visual/                            ← interface e API local
+├── tests/                             ← suíte de testes
+├── resultados/                        ← exemplos de saídas calculadas
 └── exemplos/
     ├── nodal_repl.py                   ← REPL genérico — ponto de entrada
     ├── interativo_chip.txt             ← chip eletrônico (validado)
@@ -214,7 +299,9 @@ nodal-method/
 
 ## Stack
 
-`numpy`, `scipy`, `matplotlib`, `pillow`. Python 3.9+. Apenas regime **estacionário**.
+`numpy`, `scipy`, `matplotlib`, `pillow`. Python 3.9+.
+
+O editor e os exemplos geométricos usam regime estacionário. A API `solve_transient` e o comando `solve_transient` do REPL também oferecem Euler implícito, com capacitâncias reavaliadas durante o cálculo.
 
 ---
 
