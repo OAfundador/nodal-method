@@ -2,6 +2,8 @@
 
 Ferramenta em Python para montar e resolver redes térmicas com condução, convecção, radiação e transporte entálpico de fluido. Inclui editor visual de regiões retangulares, montagem automática da malha 2D e um núcleo para regime permanente e transiente.
 
+A versão atual é a branch padrão [`codex/revisao-reproducao`](https://github.com/OAfundador/nodal-method/tree/codex/revisao-reproducao). A implementação anterior está preservada em [`legado`](https://github.com/OAfundador/nodal-method/tree/legado).
+
 Baseado em **Transferência de Calor Computacional — Método Nodal** (J. L. Ferraz Bastos & D. A. de Andrade, IPEN/CNEN-SP).
 
 ---
