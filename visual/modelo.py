@@ -8,8 +8,7 @@ import numpy as np
 from scipy.optimize import brentq
 
 from geometria import Geometry2D
-from materiais import Material
-from nos import build_network_from_geometry, add_fluid_transport_for_region
+from escoamento import property_material, build_with_flows
 from solver import solve_steady_state
 
 
@@ -35,6 +34,7 @@ class MaterialSpec:
     cp: float | None = None
     mu: float | None = None
     k_poly: tuple | None = None
+    property_model: str = "constant"
 
     @classmethod
     def from_dict(cls, data):
@@ -52,12 +52,15 @@ class MaterialSpec:
             if not isinstance(coefficients, list) or not 1 <= len(coefficients) <= 6:
                 raise ValueError("k(T) aceita de 1 a 6 coeficientes, do termo constante em diante.")
             coefficients = tuple(number(c, "coeficiente de k(T)") for c in coefficients)
+        property_model = data.get("property_model", "constant")
+        if property_model not in ("constant", "u3si2_al", "iapws97"):
+            raise ValueError("Modelo de propriedades desconhecido.")
         return cls(identifier, name, phase, number(data.get("k"), "k", positive=True),
-                   **optional, k_poly=coefficients)
+                   **optional, k_poly=coefficients, property_model=property_model)
 
     def material(self):
-        return Material(name=self.name, phase=self.phase, k=self.k, rho=self.rho, cp=self.cp,
-                        mu=self.mu, k_coeffs=self.k_poly)
+        return property_material(self.name, self.phase, self.property_model, k=self.k,
+                                 rho=self.rho, cp=self.cp, mu=self.mu, k_coeffs=self.k_poly)
 
 
 class VisualModel:
@@ -99,7 +102,8 @@ class VisualModel:
             if material_id not in self.materials:
                 raise ValueError("Escolha um material para cada retângulo.")
             coordinates = {key: number(raw.get(key), key, minimum=0) for key in ("x0", "x1", "y0", "y1")}
-            self.geom.material(identifier, self.materials[material_id].material(), **coordinates)
+            self.geom.material(identifier, self.materials[material_id].material(), **coordinates,
+                               conduction_axes=raw.get("conduction_axes", "xy"), flow=raw.get("flow"))
             source = number(raw.get("source", 0), "Geração volumétrica")
             if source:
                 self.geom.source(identifier, "volumetric", value=source)
@@ -109,7 +113,7 @@ class VisualModel:
         ny = number(mesh.get("ny", 8), "ny", positive=True)
         if int(nx) != nx or int(ny) != ny or nx * ny > self.MAX_CELLS:
             raise ValueError(f"Use nx e ny inteiros, com até {self.MAX_CELLS} células no domínio.")
-        self.geom.mesh(int(nx), int(ny), fix="auto" if mesh.get("align", True) else "raise")
+        self.geom.mesh(int(nx), int(ny), fix="interfaces" if mesh.get("align", True) else "raise")
         if self.geom.nx * self.geom.ny > self.MAX_CELLS:
             raise ValueError("O alinhamento gerou uma malha grande. Encaixe as bordas na grade ou reduza nx/ny.")
         for side in ("left", "right", "top", "bottom"):
@@ -161,7 +165,9 @@ class VisualModel:
                                              "x1": x1, "y1": y1})
         if not cells:
             raise ValueError("A malha não contém células com material.")
-        return {"nx": self.geom.nx, "ny": self.geom.ny, "cells": cells, "contacts": contacts,
+        return {"nx": self.geom.nx, "ny": self.geom.ny,
+                "x_edges": self.geom.x_edges.tolist(), "y_edges": self.geom.y_edges.tolist(),
+                "cells": cells, "contacts": contacts,
                 "void_cells": self.geom.nx * self.geom.ny - len(cells)}
 
     @staticmethod
@@ -193,23 +199,14 @@ class VisualModel:
         mesh_options = self.data.get("mesh", {})
         h = mesh_options.get("h_internal")
         h = number(h, "h interno", positive=True) if h not in (None, "") else None
-        net = build_network_from_geometry(self.geom, thickness_z=self.thickness,
-                                          internal_convection_h=h)
-        for identifier, region in self.regions.items():
-            spec = self.materials[region["material"]]
-            if spec.phase == "fluid":
-                flow = region.get("flow", {})
-                if not isinstance(flow, dict) or not flow or spec.cp is None:
-                    raise ValueError(f"Fluido em {identifier}: informe cp, vazão mássica, direção e temperatura de entrada.")
-                add_fluid_transport_for_region(net, identifier, direction=flow.get("direction", "y-"),
-                                               m_dot_total=number(flow.get("mdot"), "Vazão mássica", positive=True),
-                                               cp=spec.cp, inlet_temperature=number(flow.get("T_in"), "Temperatura de entrada", minimum=-273.15))
+        net = build_with_flows(self.geom, thickness_z=self.thickness, internal_convection_h=h)
         if len(net.unknown_node_ids()) > self.MAX_UNKNOWNS:
             raise ValueError("A rede tem muitos nós de interface. Reduza a malha.")
         self._check_anchors(net)
         result = solve_steady_state(net, tol=1e-7, max_iter=100)
         if not result.success:
             raise ValueError(f"A solução não convergiu. Resíduo {result.residual_norm:.3g} W. Revise materiais e contornos.")
+        self.network, self.solution = net, result
         temperatures = []
         for cell in description["cells"]:
             node = net.nodes[net.cell_to_node[(cell["j"], cell["i"])]]
@@ -224,7 +221,79 @@ class VisualModel:
         if not isinstance(probes, list) or len(probes) > 20:
             raise ValueError("Use uma lista de até 20 pontos de avaliação.")
         description["probes"] = [self.boundary_probe(description, probe) for probe in probes]
+        description["region_results"] = []
+        temperatures_map = net.temperatures_dict()
+        for identifier, region in self.regions.items():
+            cells = [c for c in description["cells"] if c["region"] == identifier]
+            summary = {"id": identifier, "name": region.get("name", identifier),
+                       "minimum_C": min(c["T_C"] for c in cells), "maximum_C": max(c["T_C"] for c in cells)}
+            flow = net.region_flows.get(identifier)
+            if flow:
+                r = self.geom.get_region(identifier)
+                direction = flow.direction
+                axis, edge = ("x", r.x1 if direction == "x+" else r.x0) if direction.startswith("x") else ("y", r.y1 if direction == "y+" else r.y0)
+                end_key = axis + ("1" if direction.endswith("+") else "0")
+                outlet = [c for c in cells if abs(c[end_key] - edge) < 1e-12]
+                weights = [(c["y1"] - c["y0"]) if axis == "x" else (c["x1"] - c["x0"]) for c in outlet]
+                summary["outlet_C"] = sum(c["T_C"] * w for c, w in zip(outlet, weights)) / sum(weights)
+                if flow.h_model == "dittus_boelter":
+                    hs = [flow.film(temperatures_map, net.nodes[net.cell_to_node[(c["j"], c["i"])]]) for c in cells]
+                    summary.update(h_min=min(hs), h_max=max(hs), sampling="Temperatura do fluido na saída de cada intervalo axial.")
+            description["region_results"].append(summary)
+        description["surfaces"] = [{"type": n.metadata["type"], "x": n.x, "y": n.y, "T_C": n.temperature}
+                                   for n in net.nodes.values() if n.metadata.get("type") in ("conductive_interface", "convective_surface")]
         return description
+
+    def to_repl(self):
+        """Exporta as entradas físicas; os três modos usam a mesma montagem."""
+        lines = ["# Caso exportado pelo editor visual. Unidades SI; temperatura em °C.",
+                 f"domain W={self.width!r} H={self.height!r}"]
+        materials = {}
+        for index, spec in enumerate(self.materials.values()):
+            alias = f"mat{index}"
+            materials[spec.id] = alias
+            values = [f"phase={spec.phase}", f"k={spec.k!r}", f"property_model={spec.property_model}"]
+            for key in ("rho", "cp", "mu"):
+                if getattr(spec, key) is not None:
+                    values.append(f"{key}={getattr(spec, key)!r}")
+            if spec.k_poly:
+                values.append("k_poly=" + ",".join(repr(c) for c in spec.k_poly))
+            lines.append(f"material {alias} " + " ".join(values))
+        for index, region in enumerate(self.regions.values()):
+            alias = f"reg{index}"
+            values = " ".join(f"{key}={float(region[key])!r}" for key in ("x0", "x1", "y0", "y1"))
+            lines.append(f"region {alias} mat={materials[region['material']]} {values} conduction_axes={region.get('conduction_axes', 'xy')}")
+            lines.append(f"source {alias} q={float(region.get('source', 0))!r}")
+            if self.materials[region["material"]].phase == "fluid":
+                flow = region.get("flow")
+                if not isinstance(flow, dict):
+                    raise ValueError("Defina o escoamento antes de exportar o caso.")
+                # Somente parâmetros conhecidos; nomes do usuário não viram comandos.
+                values = []
+                for key in ("direction", "model", "h_model", "T_in", "mdot", "cp", "vdot", "P_in", "P_out", "hydraulic_diameter"):
+                    if flow.get(key) is None:
+                        continue
+                    value = flow[key]
+                    if key in ("direction", "model", "h_model"):
+                        allowed = {"direction": ("x+", "x-", "y+", "y-"), "model": ("constant", "iapws97"), "h_model": ("constant", "dittus_boelter")}
+                        if value not in allowed[key]:
+                            raise ValueError("Opção de escoamento inválida.")
+                    else:
+                        value = repr(number(value, key))
+                    values.append(f"{key}={value}")
+                lines.append(f"flow_region {alias} " + " ".join(values))
+        for side in ("left", "right", "top", "bottom"):
+            boundary = self.data.get("boundaries", {}).get(side, {"kind": "adiabatic"})
+            values = []
+            for key in ("T", "h", "T_inf", "emissivity", "view_factor", "T_env", "q"):
+                if boundary.get(key) is not None:
+                    values.append(f"{key}={number(boundary[key], key)!r}")
+            lines.append(f"bc {side} {boundary['kind']} " + " ".join(values))
+        lines.append(f"mesh nx={self.geom.nx} ny={self.geom.ny} fix={'interfaces' if self.data['mesh'].get('align', True) else 'raise'}")
+        h = self.data['mesh'].get('h_internal')
+        lines.append(f"build_from_geom tz={self.thickness!r}" + (f" h_int={number(h, 'h', positive=True)!r}" if h not in (None, '') else ''))
+        lines.append("solve tol=1e-7 max_iter=100 linhas=0")
+        return "\n".join(lines) + "\n"
 
     def boundary_probe(self, result, probe):
         """Temperatura de superfície, interpolada entre centros das faces.

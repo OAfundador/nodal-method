@@ -1,0 +1,18 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {snap, stretch, move} = require('../visual/static/geometry.js');
+const a = {id: 'a', x0: 0, x1: .03, y0: 0, y1: .04};
+const b = {id: 'b', x0: .0317, x1: .08, y0: 0, y1: .04};
+assert.equal(stretch(b, [a, b]).x0, a.x1);
+assert.equal(stretch(a, [a, b], 'right').x1, b.x0);
+assert.equal(stretch(b, [a, b]).x1, b.x1);
+assert.throws(() => stretch(b, [a, b], 'top'), /Não há/);
+assert.throws(() => stretch(b, [{...a, y0: .05, y1: .06}, b]), /Não há/);
+assert.equal(snap(.0308, [.03], .001, .006), .03);
+const moved = move(b, -.0012, 0, [a, b], {width: .1, height: .04}, {x: .001, y: .001});
+assert.equal(moved.x0, .03);
+assert.ok(Math.abs((moved.x1 - moved.x0) - (b.x1 - b.x0)) < 1e-14);
+const vertical = {id: 'v', x0: 0, x1: .03, y0: .05, y1: .07};
+assert.equal(stretch(a, [a, vertical], 'top').y1, .05);
+assert.throws(() => stretch(a, [a, {...b, x0: .03, x1: .04}, {id: 'far', x0: .05, x1: .06, y0: 0, y1: .04}]), /Não há/);
+console.log('Encaixe de bordas, movimento e alongamento: OK');

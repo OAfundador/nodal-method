@@ -220,6 +220,8 @@ class Geometry2D:
         thermal_mode: Optional[str | ThermalMode] = None,
         **metadata: Any,
     ) -> MaterialRegion:
+        if metadata.get("conduction_axes", "xy") not in ("x", "y", "xy"):
+            raise ValueError("conduction_axes deve ser x, y ou xy.")
         region = MaterialRegion(
             name=name,
             material=material,
@@ -418,7 +420,7 @@ class Geometry2D:
             raise ValueError("nx e ny devem ser positivos.")
 
         fix = fix.lower().strip()
-        allowed = {"raise", "auto", "snap", "ask"}
+        allowed = {"raise", "auto", "snap", "ask", "interfaces"}
         if fix not in allowed:
             raise ValueError(f"fix deve ser um de {sorted(allowed)}.")
 
@@ -426,6 +428,18 @@ class Geometry2D:
         problems = self.alignment_problems()
 
         if not problems:
+            return
+
+        if fix == "interfaces":
+            # Preserva a geometria: cada borda de material é uma linha da malha.
+            # Evita o enorme refinamento uniforme exigido por camadas finas.
+            xs, ys = self._all_boundaries()
+            self.x_edges = self._interface_edges(xs, int(nx))
+            self.y_edges = self._interface_edges(ys, int(ny))
+            self.nx, self.ny = len(self.x_edges) - 1, len(self.y_edges) - 1
+            self.dx, self.dy = self.width / self.nx, self.height / self.ny
+            self.x_centers = .5 * (self.x_edges[:-1] + self.x_edges[1:])
+            self.y_centers = .5 * (self.y_edges[:-1] + self.y_edges[1:])
             return
 
         if fix == "raise":
@@ -487,6 +501,21 @@ class Geometry2D:
 
         self.x_centers = 0.5 * (self.x_edges[:-1] + self.x_edges[1:])
         self.y_centers = 0.5 * (self.y_edges[:-1] + self.y_edges[1:])
+
+    @staticmethod
+    def _interface_edges(boundaries, target: int):
+        edges = []
+        for value in sorted(boundaries):
+            if not edges or value - edges[-1] > 1e-12:
+                edges.append(value)
+        lengths = np.diff(edges)
+        counts = np.ones(len(lengths), dtype=int)
+        for _ in range(max(0, target - len(lengths))):
+            counts[int(np.argmax(lengths / counts))] += 1
+        result = [edges[0]]
+        for a, b, count in zip(edges[:-1], edges[1:], counts):
+            result.extend(np.linspace(a, b, count + 1)[1:])
+        return np.asarray(result)
 
     def alignment_problems(self, tol: float = 1e-12) -> list[str]:
         self._require_mesh()
@@ -837,10 +866,12 @@ class Geometry2D:
         mesh_text = "malha ainda não definida"
 
         if self.nx is not None:
+            uniform = (np.allclose(np.diff(self.x_edges), self.dx, rtol=1e-10, atol=1e-14)
+                       and np.allclose(np.diff(self.y_edges), self.dy, rtol=1e-10, atol=1e-14))
             mesh_text = (
                 f"nx={self.nx}, ny={self.ny}, "
-                f"dx={self.dx:g}, dy={self.dy:g}, "
-                f"pontos=({self.nx + 1}, {self.ny + 1})"
+                + (f"dx={self.dx:g}, dy={self.dy:g}, " if uniform else "passos variáveis nas interfaces, ")
+                + f"pontos=({self.nx + 1}, {self.ny + 1})"
             )
 
         lines = [

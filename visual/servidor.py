@@ -46,7 +46,8 @@ class NodalRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/examples":
             self._reply(200, demo_cases())
             return
-        files = {"/": STATIC / "index.html", "/app.js": STATIC / "app.js", "/style.css": STATIC / "style.css"}
+        files = {"/": STATIC / "index.html", "/app.js": STATIC / "app.js",
+                 "/geometry.js": STATIC / "geometry.js", "/style.css": STATIC / "style.css"}
         if path.startswith(("/benchmarks/", "/comparacao/")):
             name = path.split("/", 2)[2]
             if name in {"literatura.csv", "literatura.json", "benchmarks_online.json", "onur.html",
@@ -68,7 +69,7 @@ class NodalRequestHandler(BaseHTTPRequestHandler):
                 raise ValueError("O modelo deve ter até 1 MB.")
             payload = json.loads(self.rfile.read(length))
             route = urlsplit(self.path).path
-            if route not in ("/api/mesh", "/api/solve", "/api/literature", "/api/onur"):
+            if route not in ("/api/mesh", "/api/solve", "/api/repl", "/api/literature", "/api/onur"):
                 self._reply(404, {"error": "Operação não encontrada."})
                 return
             if not COMPUTE_LOCK.acquire(blocking=False):
@@ -90,7 +91,8 @@ class NodalRequestHandler(BaseHTTPRequestHandler):
                     response = {"url": "/benchmarks/onur.html"}
                 else:
                     model = VisualModel(payload)
-                    response = model.solve() if route == "/api/solve" else model.mesh_description()
+                    response = (model.solve() if route == "/api/solve" else
+                                {"text": model.to_repl()} if route == "/api/repl" else model.mesh_description())
             finally:
                 COMPUTE_LOCK.release()
             self._reply(200, response)

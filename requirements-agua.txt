@@ -1,0 +1,2 @@
+# Opcional: propriedades de água variáveis nos modos visual e texto.
+iapws==1.5.5

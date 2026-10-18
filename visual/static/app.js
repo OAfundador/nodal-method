@@ -68,7 +68,7 @@ class NodalEditor {
       for (let j = 0; j < i; j++) {
         const b = regions[j];
         if (Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 1e-12 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 1e-12)
-          throw new Error('As regiões podem encostar, mas não se sobrepor. Encaixe suas bordas na grade.');
+          throw new Error('As regiões podem encostar, mas não se sobrepor. Use os cantos ou Esticar até a região vizinha.');
       }
     }
   }
@@ -117,6 +117,15 @@ class NodalEditor {
     for (const id of ['generate-mesh', 'generate-mesh-side']) $(id).addEventListener('click', () => this.compute(false));
     $('solve-model').addEventListener('click', () => this.compute(true));
     $('export-csv').addEventListener('click', () => this.exportCSV());
+    $('export-image').addEventListener('click', () => this.exportImage());
+    $('export-txt').addEventListener('click', async () => {
+      try { const data = await this.post('/api/repl', this.model); this.download('modelo_nodal.txt', data.text, 'text/plain;charset=utf-8'); }
+      catch (error) { this.toast(error.message); }
+    });
+    $('mat-property-model').addEventListener('change', () => {
+      if ($('mat-property-model').value === 'iapws97') $('mat-phase').value = 'fluid';
+      if ($('mat-property-model').value === 'u3si2_al') $('mat-phase').value = 'solid';
+    });
     $('profile-axis').addEventListener('change', () => this.drawProfile());
     $('save-model').addEventListener('click', () => this.download((this.model.name || 'modelo').replace(/[^\p{L}\p{N}_-]/gu, '_') + '.json', JSON.stringify(this.model, null, 2), 'application/json'));
     $('import-model').addEventListener('click', () => $('import-file').click());
@@ -133,9 +142,13 @@ class NodalEditor {
       if (![nx, ny].every(n => Number.isInteger(n) && n > 0) || nx * ny > 900) throw new Error('Use divisões inteiras positivas, com até 900 células.');
       this.model.mesh = {nx, ny, align: $('mesh-align').checked, h_internal: $('mesh-h').value === '' ? null : Number($('mesh-h').value)};
     }));
-    for (const id of ['region-name', 'region-material', 'region-x0', 'region-y0', 'region-width', 'region-height', 'region-source', 'flow-direction', 'flow-mdot', 'flow-tin'])
+    for (const id of ['region-name', 'region-material', 'region-x0', 'region-y0', 'region-width', 'region-height', 'region-source', 'region-conduction', 'flow-direction', 'flow-mdot', 'flow-tin', 'flow-model', 'flow-vdot', 'flow-pin', 'flow-pout', 'flow-h-model', 'flow-diameter'])
       $(id).addEventListener('change', () => this.updateRegion());
     $('delete-region').addEventListener('click', () => this.deleteRegion());
+    $('attach-region').addEventListener('click', () => this.change(() => {
+      const region = this.model.regions.find(r => r.id === this.selected);
+      if (region) Object.assign(region, GeometryTools.stretch(region, this.model.regions, $('attach-side').value));
+    }));
     $('book-tests').addEventListener('click', () => this.verification());
     $('canvas').addEventListener('pointerdown', event => this.pointerDown(event));
     $('canvas').addEventListener('pointermove', event => this.pointerMove(event));
@@ -169,7 +182,7 @@ class NodalEditor {
     if (tool === 'draw' && !this.activeMaterial) { this.toast('Cadastre e selecione um material primeiro.'); return; }
     this.tool = tool; $('tool-select').classList.toggle('active', tool === 'select'); $('tool-draw').classList.toggle('active', tool === 'draw');
     $('canvas').classList.toggle('draw', tool === 'draw');
-    $('canvas-status').textContent = tool === 'draw' ? 'Clique e arraste para desenhar. As bordas se encaixam na grade.' : 'Selecione uma região para editar.';
+    $('canvas-status').textContent = tool === 'draw' ? 'Clique e arraste. As bordas aderem às regiões vizinhas.' : 'Selecione uma região; arraste os cantos ou use Esticar até a região vizinha.';
   }
 
   materialDialog(id = null) {
@@ -177,16 +190,17 @@ class NodalEditor {
     this.editMaterial = id; $('material-dialog-title').textContent = id ? 'Editar material' : 'Novo material';
     for (const key of ['name', 'k', 'rho', 'cp', 'mu']) $('mat-' + key).value = material[key] ?? '';
     $('mat-phase').value = material.phase || 'solid'; $('mat-color').value = material.color || '#7190a7';
+    $('mat-property-model').value = material.property_model || 'constant';
     $('mat-k-poly').value = (material.k_poly || []).join(', '); $('material-dialog').showModal(); $('mat-name').focus();
   }
 
   saveMaterial() {
-    const data = {id: this.editMaterial || 'm_' + Date.now().toString(36), name: $('mat-name').value.trim(), phase: $('mat-phase').value, color: $('mat-color').value, k: Number($('mat-k').value)};
+    const data = {id: this.editMaterial || 'm_' + Date.now().toString(36), name: $('mat-name').value.trim(), phase: $('mat-phase').value, color: $('mat-color').value, k: Number($('mat-k').value), property_model: $('mat-property-model').value};
     if (!data.name || !Number.isFinite(data.k) || data.k <= 0) { this.toast('Informe um nome e uma condutividade positiva.'); return; }
     for (const key of ['rho', 'cp', 'mu']) if ($('mat-' + key).value !== '') {
       data[key] = Number($('mat-' + key).value); if (!Number.isFinite(data[key]) || data[key] <= 0) { this.toast('As propriedades devem ser positivas.'); return; }
     }
-    if ($('mat-k-poly').value.trim()) {
+    if (data.property_model === 'constant' && $('mat-k-poly').value.trim()) {
       data.k_poly = $('mat-k-poly').value.split(',').map(Number);
       if (!data.k_poly.length || data.k_poly.length > 6 || data.k_poly.some(v => !Number.isFinite(v))) { this.toast('Informe até 6 coeficientes numéricos separados por vírgulas.'); return; }
     }
@@ -208,9 +222,15 @@ class NodalEditor {
       r.x0 = Number($('region-x0').value) / 1000; r.y0 = Number($('region-y0').value) / 1000;
       r.x1 = r.x0 + Number($('region-width').value) / 1000; r.y1 = r.y0 + Number($('region-height').value) / 1000;
       r.source = Number($('region-source').value);
+      r.conduction_axes = $('region-conduction').value;
       if (!Number.isFinite(r.source)) throw new Error('Informe uma geração de calor numérica.');
-      if (this.model.materials.find(m => m.id === r.material)?.phase === 'fluid')
-        r.flow = {direction: $('flow-direction').value, mdot: $('flow-mdot').value === '' ? null : Number($('flow-mdot').value), T_in: $('flow-tin').value === '' ? null : Number($('flow-tin').value)};
+      if (this.model.materials.find(m => m.id === r.material)?.phase === 'fluid') {
+        const value = (id, factor = 1) => $(id).value === '' ? null : Number($(id).value) * factor;
+        r.flow = {direction: $('flow-direction').value, model: $('flow-model').value,
+          mdot: value('flow-mdot'), T_in: value('flow-tin'), vdot: value('flow-vdot', 1/3600),
+          P_in: value('flow-pin', 1000), P_out: value('flow-pout', 1000),
+          h_model: $('flow-h-model').value, hydraulic_diameter: value('flow-diameter', .001)};
+      }
     });
   }
 
@@ -221,6 +241,7 @@ class NodalEditor {
 
   render() {
     if (!this.model) return;
+    document.title = (this.model.name || 'Editor visual') + ' · Método Nodal';
     $('model-name').value = this.model.name || 'Modelo térmico';
     $('domain-width').value = +(this.model.domain.width * 1000).toFixed(7); $('domain-height').value = +(this.model.domain.height * 1000).toFixed(7); $('domain-thickness').value = +(this.model.domain.thickness * 1000).toFixed(7);
     $('mesh-nx').value = this.model.mesh.nx; $('mesh-ny').value = this.model.mesh.ny; $('mesh-align').checked = this.model.mesh.align !== false; $('mesh-h').value = this.model.mesh.h_internal ?? '';
@@ -229,7 +250,7 @@ class NodalEditor {
       const card = document.createElement('div'); card.className = 'material-card' + (material.id === this.activeMaterial ? ' selected' : ''); card.draggable = true; card.tabIndex = 0; card.setAttribute('role', 'button'); card.setAttribute('aria-label', 'Selecionar material ' + material.name);
       const swatch = document.createElement('span'); swatch.className = 'swatch'; swatch.style.backgroundColor = material.color || '#7190a7';
       const copy = document.createElement('div'); copy.className = 'material-copy'; const name = document.createElement('strong'); name.textContent = material.name;
-      const value = document.createElement('small'); value.textContent = (material.k_poly ? 'k(T)' : 'k = ' + fmt(material.k, 2)) + ' W/(m·K) · ' + (material.phase === 'fluid' ? 'Fluido' : 'Sólido'); copy.append(name, value);
+      const value = document.createElement('small'); value.textContent = material.property_model === 'iapws97' ? 'IAPWS97 · propriedades variáveis' : (material.k_poly || material.property_model === 'u3si2_al' ? 'k(T)' : 'k = ' + fmt(material.k, 2)) + ' W/(m·K) · ' + (material.phase === 'fluid' ? 'Fluido' : 'Sólido'); copy.append(name, value);
       const edit = document.createElement('button'); edit.className = 'edit-material'; edit.textContent = '✎'; edit.setAttribute('aria-label', 'Editar material ' + material.name); edit.addEventListener('click', event => { event.stopPropagation(); this.materialDialog(material.id); });
       const select = () => { this.activeMaterial = material.id; this.render(); };
       card.addEventListener('click', select); card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
@@ -251,6 +272,17 @@ class NodalEditor {
     if (hasResult) {
       $('result-max').textContent = fmt(this.result.maximum_C) + ' °C'; $('result-min').textContent = fmt(this.result.minimum_C) + ' °C';
       $('result-residual').textContent = this.result.residual_W.toExponential(2) + ' W'; $('result-size').textContent = this.result.nodes + ' nós · ' + this.result.cells.length + ' células';
+      const summaries = $('region-results'); summaries.replaceChildren();
+      summaries.append(this.table(['Região', 'Mín. [°C]', 'Máx. [°C]', 'Saída do fluido [°C]'], (this.result.region_results || []).map(r => [r.name, fmt(r.minimum_C, 4), fmt(r.maximum_C, 4), r.outlet_C == null ? '—' : fmt(r.outlet_C, 4)])));
+      for (const r of this.result.region_results || []) if (r.h_min != null) {
+        const note = document.createElement('p'); note.className = 'hint'; note.textContent = r.name + ': h = ' + fmt(r.h_min, 1) + ' a ' + fmt(r.h_max, 1) + ' W/(m²·K). ' + r.sampling; summaries.append(note);
+      }
+      const profile = $('profile-axis'), selected = profile.value;
+      profile.querySelectorAll('[data-region-profile]').forEach(o => o.remove());
+      for (const region of this.model.regions) {
+        const option = document.createElement('option'); option.value = 'region:' + region.id; option.dataset.regionProfile = 'true'; option.textContent = 'Perfil axial · ' + region.name; profile.append(option);
+      }
+      profile.value = Array.from(profile.options).some(o => o.value === selected) ? selected : 'x';
       this.drawProfile();
     }
     this.draw();
@@ -287,25 +319,42 @@ class NodalEditor {
     $('region-width').value = +((region.x1 - region.x0) * 1000).toFixed(7); $('region-height').value = +((region.y1 - region.y0) * 1000).toFixed(7); $('region-source').value = region.source || 0;
     $('region-flow').hidden = this.model.materials.find(m => m.id === region.material)?.phase !== 'fluid';
     $('flow-direction').value = region.flow?.direction || 'y-'; $('flow-mdot').value = region.flow?.mdot ?? ''; $('flow-tin').value = region.flow?.T_in ?? '';
+    $('region-conduction').value = region.conduction_axes || 'xy';
+    $('flow-model').value = region.flow?.model || 'constant';
+    $('flow-water-fields').hidden = $('flow-model').value !== 'iapws97';
+    $('flow-mass-field').hidden = $('flow-model').value === 'iapws97';
+    $('flow-vdot').value = region.flow?.vdot == null ? '' : +(region.flow.vdot * 3600).toPrecision(12);
+    $('flow-pin').value = region.flow?.P_in == null ? '' : region.flow.P_in / 1000;
+    $('flow-pout').value = region.flow?.P_out == null ? '' : region.flow.P_out / 1000;
+    $('flow-h-model').value = region.flow?.h_model || 'constant';
+    $('flow-diameter').value = region.flow?.hydraulic_diameter == null ? '' : region.flow.hydraulic_diameter * 1000;
   }
 
   transform() {
     const {width, height} = this.model.domain, scale = Math.min(830 / width, 450 / height) * this.zoom;
-    return {scale, left: (1000 - width * scale) / 2, bottom: (620 + height * scale) / 2, width: width * scale, height: height * scale};
+    const expanded = width / height < .2 || width / height > 5;
+    const sx = expanded ? 830 / width * this.zoom : scale, sy = expanded ? 450 / height * this.zoom : scale;
+    return {sx, sy, expanded, left: (1000 - width * sx) / 2, bottom: (620 + height * sy) / 2, width: width * sx, height: height * sy};
   }
 
   point(event, snap = true) {
     const p = new DOMPoint(event.clientX, event.clientY).matrixTransform($('canvas').getScreenCTM().inverse());
     const t = this.transform(), d = this.model.domain;
-    let x = Math.max(0, Math.min(d.width, (p.x - t.left) / t.scale)), y = Math.max(0, Math.min(d.height, (t.bottom - p.y) / t.scale));
-    if (snap && $('snap').checked) { x = Math.round(x / d.width * this.model.mesh.nx) * d.width / this.model.mesh.nx; y = Math.round(y / d.height * this.model.mesh.ny) * d.height / this.model.mesh.ny; }
+    let x = Math.max(0, Math.min(d.width, (p.x - t.left) / t.sx)), y = Math.max(0, Math.min(d.height, (t.bottom - p.y) / t.sy));
+    if (snap && $('snap').checked) {
+      const excluded = this.drag?.original?.id || (this.tool === 'select' ? this.selected : null);
+      const others = this.model.regions.filter(r => r.id !== excluded);
+      x = GeometryTools.snap(x, [0, d.width, ...others.flatMap(r => [r.x0, r.x1])], 12 / t.sx, d.width / this.model.mesh.nx);
+      y = GeometryTools.snap(y, [0, d.height, ...others.flatMap(r => [r.y0, r.y1])], 12 / t.sy, d.height / this.model.mesh.ny);
+    }
     return {x: +x.toFixed(12), y: +y.toFixed(12)};
   }
 
   pointerDown(event) {
     if (!this.model || this.busy || event.button !== 0 || this.view === 'temperatures') return;
-    const p = this.point(event), regionId = event.target.closest('[data-region]')?.dataset.region;
+    const regionId = event.target.closest('[data-region]')?.dataset.region;
     const handle = event.target.dataset.handle;
+    const p = this.point(event, this.tool === 'draw' || !!handle);
     if (this.tool === 'draw') this.drag = {type: 'draw', start: p, end: p, before: clone(this.model)};
     else if (regionId) {
       this.selected = regionId; const region = this.model.regions.find(r => r.id === regionId);
@@ -316,7 +365,7 @@ class NodalEditor {
 
   pointerMove(event) {
     if (!this.model) return;
-    const p = this.point(event);
+    const p = this.point(event, this.drag?.type !== 'move' && this.view !== 'temperatures');
     if (!this.drag) {
       let text = 'x = ' + fmt(p.x * 1000) + ' mm · y = ' + fmt(p.y * 1000) + ' mm';
       if (this.view === 'temperatures' && this.result) { const cell = this.result.cells.find(c => p.x >= c.x0 && p.x <= c.x1 && p.y >= c.y0 && p.y <= c.y1); if (cell) text += ' · ' + fmt(cell.T_C) + ' °C'; }
@@ -327,9 +376,10 @@ class NodalEditor {
     else {
       const region = this.model.regions.find(r => r.id === this.selected), original = drag.original;
       if (drag.type === 'move') {
-        const dx = Math.max(-original.x0, Math.min(this.model.domain.width - original.x1, p.x - drag.start.x));
-        const dy = Math.max(-original.y0, Math.min(this.model.domain.height - original.y1, p.y - drag.start.y));
-        Object.assign(region, {x0: original.x0 + dx, x1: original.x1 + dx, y0: original.y0 + dy, y1: original.y1 + dy});
+        const t = this.transform(), enabled = $('snap').checked, d = this.model.domain;
+        Object.assign(region, GeometryTools.move(original, p.x - drag.start.x, p.y - drag.start.y,
+          this.model.regions, d, {x: enabled ? 12 / t.sx : 0, y: enabled ? 12 / t.sy : 0},
+          enabled ? {x: d.width / this.model.mesh.nx, y: d.height / this.model.mesh.ny} : null));
       } else {
         region.x0 = drag.handle.includes('w') ? p.x : original.x0; region.x1 = drag.handle.includes('e') ? p.x : original.x1;
         region.y0 = drag.handle.includes('s') ? p.y : original.y0; region.y1 = drag.handle.includes('n') ? p.y : original.y1;
@@ -368,29 +418,32 @@ class NodalEditor {
   draw() {
     if (!this.model) return;
     const canvas = $('canvas'); canvas.replaceChildren(); const t = this.transform(), domain = this.model.domain;
-    const x = value => t.left + value * t.scale, y = value => t.bottom - value * t.scale;
+    const x = value => t.left + value * t.sx, y = value => t.bottom - value * t.sy;
+    $('canvas-caption').textContent = t.expanded ? 'Vista xy · eixos ampliados separadamente · cotas reais em mm' : 'Vista xy · dimensões em milímetros';
     const defs = svgNode('defs'), pattern = svgNode('pattern', {id: 'dots', width: 16, height: 16, patternUnits: 'userSpaceOnUse'});
     pattern.append(svgNode('circle', {cx: 1, cy: 1, r: .7, fill: '#d5dfe5'})); defs.append(pattern);
     const clip = svgNode('clipPath', {id: 'region-clip'});
-    for (const r of this.model.regions) clip.append(svgNode('rect', {x: x(r.x0), y: y(r.y1), width: (r.x1 - r.x0) * t.scale, height: (r.y1 - r.y0) * t.scale}));
+    for (const r of this.model.regions) clip.append(svgNode('rect', {x: x(r.x0), y: y(r.y1), width: (r.x1 - r.x0) * t.sx, height: (r.y1 - r.y0) * t.sy}));
     defs.append(clip); canvas.append(defs, svgNode('rect', {width: 1000, height: 620, fill: 'url(#dots)'}));
     canvas.append(svgNode('rect', {x: t.left, y: t.bottom - t.height, width: t.width, height: t.height, fill: '#fff', stroke: '#b6c5cf', 'stroke-width': 1}));
     const heat = this.view === 'temperatures' && this.result;
     for (const region of this.model.regions) {
       const material = this.model.materials.find(m => m.id === region.material);
-      canvas.append(svgNode('rect', {x: x(region.x0), y: y(region.y1), width: Math.max(0, (region.x1 - region.x0) * t.scale), height: Math.max(0, (region.y1 - region.y0) * t.scale), fill: material?.color || '#7190a7', 'fill-opacity': .33, stroke: material?.color || '#7190a7', 'stroke-width': 1.5, 'data-region': region.id, class: 'region'}));
+      canvas.append(svgNode('rect', {x: x(region.x0), y: y(region.y1), width: Math.max(0, (region.x1 - region.x0) * t.sx), height: Math.max(0, (region.y1 - region.y0) * t.sy), fill: material?.color || '#7190a7', 'fill-opacity': .33, stroke: material?.color || '#7190a7', 'stroke-width': 1.5, 'data-region': region.id, class: 'region'}));
     }
-    if (heat) for (const cell of this.result.cells) canvas.append(svgNode('rect', {x: x(cell.x0), y: y(cell.y1), width: (cell.x1 - cell.x0) * t.scale + .2, height: (cell.y1 - cell.y0) * t.scale + .2, fill: this.temperatureColor(cell.T_C), 'pointer-events': 'none'}));
+    if (heat) for (const cell of this.result.cells) canvas.append(svgNode('rect', {x: x(cell.x0), y: y(cell.y1), width: (cell.x1 - cell.x0) * t.sx + .2, height: (cell.y1 - cell.y0) * t.sy + .2, fill: this.temperatureColor(cell.T_C), 'pointer-events': 'none'}));
     if (this.mesh) {
       const grid = svgNode('g', {'clip-path': 'url(#region-clip)', 'pointer-events': 'none'});
-      for (let i = 0; i <= this.mesh.nx; i++) grid.append(svgNode('line', {x1: x(domain.width * i / this.mesh.nx), x2: x(domain.width * i / this.mesh.nx), y1: y(0), y2: y(domain.height), stroke: heat ? '#ffffff45' : '#557b9345', 'stroke-width': .9}));
-      for (let j = 0; j <= this.mesh.ny; j++) grid.append(svgNode('line', {x1: x(0), x2: x(domain.width), y1: y(domain.height * j / this.mesh.ny), y2: y(domain.height * j / this.mesh.ny), stroke: heat ? '#ffffff45' : '#557b9345', 'stroke-width': .9}));
+      for (const edge of this.mesh.x_edges) grid.append(svgNode('line', {x1: x(edge), x2: x(edge), y1: y(0), y2: y(domain.height), stroke: heat ? '#ffffff45' : '#557b9345', 'stroke-width': .9}));
+      for (const edge of this.mesh.y_edges) grid.append(svgNode('line', {x1: x(0), x2: x(domain.width), y1: y(edge), y2: y(edge), stroke: heat ? '#ffffff45' : '#557b9345', 'stroke-width': .9}));
       canvas.append(grid);
       if (!heat) for (const contact of this.mesh.contacts) canvas.append(svgNode('line', {x1: x(contact.x0), y1: y(contact.y0), x2: x(contact.x1), y2: y(contact.y1), stroke: '#2e8e79', 'stroke-width': 3, 'pointer-events': 'none'}));
     }
     for (const region of this.model.regions) {
       if (region.x1 <= region.x0 || region.y1 <= region.y0) continue;
-      const cx = x((region.x0 + region.x1) / 2), cy = y((region.y0 + region.y1) / 2), w = (region.x1 - region.x0) * t.scale, h = (region.y1 - region.y0) * t.scale;
+      const cx = x((region.x0 + region.x1) / 2), cy = y((region.y0 + region.y1) / 2), w = (region.x1 - region.x0) * t.sx, h = (region.y1 - region.y0) * t.sy;
+      if (heat && w > 65 && region.y0 < 1e-12 && Math.abs(region.y1 - domain.height) < 1e-12)
+        canvas.append(svgNode('text', {x: cx, y: y(region.y1) - 13, 'text-anchor': 'middle', 'font-size': 11, fill: '#637e8c', 'pointer-events': 'none'}, region.name || region.id));
       if (w > 65 && h > 42 && !heat) {
         canvas.append(svgNode('text', {x: cx, y: cy - 2, 'text-anchor': 'middle', 'font-size': 14, fill: '#385567', 'font-weight': 550, 'pointer-events': 'none'}, region.name || region.id));
         const mat = this.model.materials.find(m => m.id === region.material);
@@ -426,7 +479,7 @@ class NodalEditor {
       canvas.append(svgNode('text', {x: 500, y: 295, 'text-anchor': 'middle', fill: '#9aafb8', 'font-size': 19, 'pointer-events': 'none'}, 'Desenhe sua primeira região'));
       canvas.append(svgNode('text', {x: 500, y: 326, 'text-anchor': 'middle', fill: '#a5b8c0', 'font-size': 12, 'pointer-events': 'none'}, 'Escolha um material e use a ferramenta Retângulo.'));
     }
-    if (this.drag?.type === 'draw') { const a = this.drag.start, b = this.drag.end; canvas.append(svgNode('rect', {x: x(Math.min(a.x,b.x)), y: y(Math.max(a.y,b.y)), width: Math.abs(a.x-b.x)*t.scale, height: Math.abs(a.y-b.y)*t.scale, fill: '#74b29a44', stroke: '#368f76', 'stroke-width': 2, 'stroke-dasharray': '6 4', 'pointer-events': 'none'})); }
+    if (this.drag?.type === 'draw') { const a = this.drag.start, b = this.drag.end; canvas.append(svgNode('rect', {x: x(Math.min(a.x,b.x)), y: y(Math.max(a.y,b.y)), width: Math.abs(a.x-b.x)*t.sx, height: Math.abs(a.y-b.y)*t.sy, fill: '#74b29a44', stroke: '#368f76', 'stroke-width': 2, 'stroke-dasharray': '6 4', 'pointer-events': 'none'})); }
     $('fit-view').textContent = Math.round(this.zoom * 100) + '%'; $('color-legend').hidden = !heat;
     if (heat) { $('legend-min').textContent = fmt(this.result.minimum_C) + ' °C'; $('legend-max').textContent = fmt(this.result.maximum_C) + ' °C'; }
   }
@@ -445,8 +498,10 @@ class NodalEditor {
 
   drawProfile() {
     if (!this.result) return;
-    const svg = $('profile-chart'); svg.replaceChildren(); const axis = $('profile-axis').value;
-    const cells = this.result.cells.filter(c => axis === 'x' ? c.j === Math.floor(this.result.ny / 2) : c.i === Math.floor(this.result.nx / 2)).sort((a,b) => axis === 'x' ? a.i-b.i : a.j-b.j);
+    const svg = $('profile-chart'); svg.replaceChildren(); const selection = $('profile-axis').value;
+    const region = selection.startsWith('region:') ? this.model.regions.find(r => r.id === selection.slice(7)) : null;
+    const axis = region ? (region.flow?.direction?.startsWith('x') ? 'x' : 'y') : selection;
+    const cells = this.result.cells.filter(c => region ? c.region === region.id : axis === 'x' ? c.j === Math.floor(this.result.ny / 2) : c.i === Math.floor(this.result.nx / 2)).sort((a,b) => axis === 'x' ? a.i-b.i : a.j-b.j);
     if (!cells.length) { svg.append(svgNode('text', {x:360,y:70,'text-anchor':'middle',fill:'#8c9ca6','font-size':12}, 'O corte central não atravessa nenhuma região.')); return; }
     const low = this.result.minimum_C, high = this.result.maximum_C, span = high-low || 1, length = axis === 'x' ? this.model.domain.width : this.model.domain.height;
     const px = c => 66 + (axis === 'x' ? (c.x0+c.x1)/2 : (c.y0+c.y1)/2)/length*590;
@@ -462,6 +517,30 @@ class NodalEditor {
 
   download(name, content, type) {
     const url = URL.createObjectURL(new Blob([content], {type})), anchor = document.createElement('a'); anchor.href=url; anchor.download=name; anchor.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  async exportImage() {
+    try {
+      const svg = $('canvas').cloneNode(true); svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svg.setAttribute('width', '1600'); svg.setAttribute('height', '1040'); svg.setAttribute('viewBox', '0 -30 1000 650');
+      svg.append(svgNode('text', {x: 85, y: -8, 'font-family': 'sans-serif', 'font-size': 13, fill: '#385567'}, this.model.name + (this.result && this.view === 'temperatures' ? ' · T [°C]: ' + fmt(this.result.minimum_C, 3) + ' a ' + fmt(this.result.maximum_C, 3) : ' · Geometria [mm]')));
+      svg.append(svgNode('text', {x: 85, y: 12, 'font-family': 'sans-serif', 'font-size': 9, fill: '#637e8c'}, $('canvas-caption').textContent));
+      if (this.result && this.view === 'temperatures') {
+        const defs = svg.querySelector('defs'), gradient = svgNode('linearGradient', {id: 'export-ramp'});
+        for (const [offset, color] of [['0%', '#2b68a1'], ['33%', '#9bc9d0'], ['66%', '#f5e6a0'], ['100%', '#d57442']]) gradient.append(svgNode('stop', {offset, 'stop-color': color}));
+        defs.append(gradient);
+        svg.append(svgNode('rect', {x: 680, y: 27, width: 230, height: 7, fill: 'url(#export-ramp)'}),
+          svgNode('text', {x: 680, y: 48, 'font-family': 'sans-serif', 'font-size': 9, fill: '#637e8c'}, fmt(this.result.minimum_C, 2) + ' °C'),
+          svgNode('text', {x: 910, y: 48, 'text-anchor': 'end', 'font-family': 'sans-serif', 'font-size': 9, fill: '#637e8c'}, fmt(this.result.maximum_C, 2) + ' °C'));
+      }
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], {type: 'image/svg+xml'}));
+      try {
+        const image = new Image(); image.src = url; await image.decode();
+        const canvas = document.createElement('canvas'); canvas.width = 1600; canvas.height = 1040;
+        const context = canvas.getContext('2d'); context.fillStyle = '#f9fbfc'; context.fillRect(0,0,1600,1040); context.drawImage(image,0,0,1600,1040);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        this.download('modelo_nodal.png', blob, 'image/png');
+      } finally { URL.revokeObjectURL(url); }
+    } catch (error) { this.toast('Não foi possível exportar a imagem: ' + error.message); }
   }
   exportCSV() {
     if (!this.result) return;

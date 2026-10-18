@@ -26,13 +26,27 @@ O navegador abre em `http://127.0.0.1:8765`. Mantenha o terminal aberto enquanto
 
 1. Em **Materiais**, cadastre nome, fase e propriedades. Para condução estacionária, `k` é obrigatório; `rho`, `cp` e `mu` são opcionais. Também é possível informar os coeficientes de `k(T)`.
 2. Selecione um material e use **Retângulo**: clique e arraste para desenhar. Também pode arrastar um cartão de material para a área de desenho. Use **Selecionar** para mover; os quatro cantos permitem redimensionar. O painel à direita aceita coordenadas e dimensões exatas.
-3. Encoste as regiões, sem sobreposição. O encaixe na grade ajuda a alinhar as bordas. Defina a geração de calor de cada região, se houver.
+3. Encoste as regiões, sem sobreposição. **Encaixar bordas e grade** dá prioridade às bordas das regiões vizinhas ao desenhar, mover ou arrastar os cantos. Se restar uma folga, selecione o retângulo e clique em **Esticar até a região vizinha** no painel da direita; escolha a borda ou deixe a vizinha mais próxima. A ação altera uma única borda e pode ser desfeita com `Ctrl+Z`. Defina a geração de calor de cada região, se houver.
 4. Em **Contornos**, configure temperatura, convecção, radiação, convecção + radiação, fluxo imposto ou isolamento nas faces externas do domínio. Para radiação, informe emissividade, fator de vista e temperatura radiativa; no caso combinado, informe também h e a temperatura do fluido. Em **Malha**, escolha `nx` e `ny` e clique em **Gerar malha**. As faces verdes indicam o contato entre regiões.
-5. Clique em **Resolver modelo** para obter o mapa e o perfil de temperaturas. **Exportar CSV** salva as temperaturas dos centros das células. **Salvar modelo** e **Abrir modelo** preservam/restauram os dados em JSON.
+5. Clique em **Resolver modelo** para obter o mapa, os perfis e os resultados por região. **Exportar CSV** salva as temperaturas dos nós das células; **Salvar imagem** exporta o desenho ou campo em PNG. **Salvar modelo** e **Abrir modelo** preservam/restauram os dados em JSON. **Exportar .txt** salva comandos executáveis pelo REPL.
 
 A interface mostra comprimentos em **mm**, temperaturas em **°C** e propriedades em SI. O JSON e o núcleo numérico usam comprimentos em **m**. Áreas vazias são omitidas e suas bordas internas são isoladas; os contornos configuráveis pertencem às faces externas do domínio. O editor calcula regime permanente, com até 900 células e 1600 incógnitas. Uma região desconectada de qualquer referência térmica é rejeitada.
 
-Para regiões fluidas, informe `cp`, vazão **mássica**, direção e temperatura de entrada no painel da região. Na interface sólido-fluido, informe também `h` interno. O transporte é distribuído entre as cadeias paralelas da região. Não há cálculo automático de vazão, queda de pressão ou coeficiente de convecção a partir de correlações no editor.
+**Adaptar a malha às interfaces**, na aba Malha, cria passos variáveis que preservam as dimensões dos retângulos e as camadas finas. As divisões pedidas são mantidas quando possível, com pelo menos uma célula em cada intervalo entre interfaces. Uma folga geométrica continua sendo um vazio isolado; use o botão de esticar para fechar a folga. No REPL, `mesh ... fix=interfaces` usa a mesma opção. O modo antigo `fix=snap` aproxima a geometria à grade uniforme e altera suas dimensões.
+
+Para regiões fluidas com propriedades constantes, informe `cp`, vazão **mássica**, direção e temperatura de entrada no painel da região. Na interface sólido-fluido, informe também `h` interno na aba Malha. A vazão é distribuída entre as cadeias paralelas proporcionalmente à área da seção. O painel também permite restringir a condução dos sólidos a `x` ou `y`; o padrão é condução em ambas as direções.
+
+Para **água com propriedades variáveis**, instale a dependência opcional:
+
+```bash
+python -m pip install -r requirements-agua.txt
+```
+
+Selecione **Água líquida · IAPWS97** no material e **Água · IAPWS97 variável** no escoamento da região. Informe vazão volumétrica, pressões de entrada/saída, direção e temperatura de entrada. Para calcular `h`, selecione **Dittus–Boelter · aquecimento** e informe o diâmetro hidráulico. A pressão varia linearmente; a vazão volumétrica é constante; `ρ` e `cp` são avaliados a montante de cada intervalo, e `h` na temperatura local do fluido. Os nós fluidos representam a saída de cada intervalo axial. É uma marcha em temperatura; uma formulação com vazão mássica constante ou integração de entalpia define outro modelo. O programa não calcula a queda de pressão. O uso da correlação deve corresponder às hipóteses do caso definido.
+
+O material **U3Si2-Al** disponibiliza a correlação `k(T)` já existente na biblioteca do terminal. As correlações selecionadas prevalecem sobre os valores constantes. O editor continua calculando regime permanente; a evolução física no tempo é executada por `solve_transient` no núcleo/terminal.
+
+Para verificar ou executar o mesmo modelo nos três modos, exporte `.txt` pelo editor. Execute `python exemplos/nodal_repl.py modelo_nodal.txt --csv temperaturas.csv`, ou abra `python exemplos/nodal_repl.py` e digite os mesmos comandos. A suíte compara o campo inteiro, as fontes e a rede após passar pelos parsers de cada modo, incluindo água variável quando a dependência opcional está instalada.
 
 O menu oferece **parede uniforme**, **parede composta**, a **geometria 2D do chip** e o **NAFEMS T4** com ponto de avaliação na superfície. O botão **Benchmarks** executa os quatro casos do livro, os casos públicos NAFEMS/TMAP8 e a placa com geração, convecção e radiação de Onur & Sivrioglu, descritos em [BENCHMARKS.md](BENCHMARKS.md). As equações desse artigo foram verificadas, mas há divergências com alguns patamares de seus gráficos. Atalhos: `V` seleciona, `R` desenha, `Del` exclui a região selecionada e `Ctrl+Z` desfaz uma alteração. A ferramenta também permite apagar ou redimensionar uma região pelo painel de propriedades.
 

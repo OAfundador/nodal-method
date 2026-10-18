@@ -13,6 +13,20 @@ from scipy.optimize import brentq
 
 
 class VisualModelTests(unittest.TestCase):
+    def test_thin_layers_keep_dimensions_and_use_conforming_mesh(self):
+        data = demo_cases()["composite"]
+        data["regions"][0]["x1"] = .0007
+        data["regions"][1]["x0"] = .0007
+        data["mesh"].update(nx=3, ny=2)
+        result = VisualModel(data).solve()
+        self.assertEqual(result["nx"], 3)
+        self.assertIn(.0007, result["x_edges"])
+        flux = 80 / (.0007 / 10 + (.06 - .0007) / 20)
+        for cell in result["cells"]:
+            x = (cell["x0"] + cell["x1"]) / 2
+            expected = 100 - flux * (x / 10 if x < .0007 else .0007 / 10 + (x - .0007) / 20)
+            self.assertAlmostEqual(cell["T_C"], expected, places=8)
+
     def test_uniform_wall_matches_exact_field_at_every_cell(self):
         data = demo_cases()["uniform"]
         result = VisualModel(data).solve()

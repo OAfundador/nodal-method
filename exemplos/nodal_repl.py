@@ -30,6 +30,7 @@ if str(ROOT) not in sys.path:
 from condutancias import conduction_G, convection_G
 from geometria import Geometry2D
 from materiais import Material, MaterialPhase
+from escoamento import property_material, build_with_flows
 from nos import (
     NodalNetwork, NodeKind, TransferKind, LinkDirection,
     build_network_from_geometry, conduction_func_between_nodes,
@@ -92,7 +93,8 @@ def _material_from_props(nome, props):
         elif const is not None:
             kwargs[prop] = const
 
-    mat = Material(**kwargs)
+    mat = property_material(nome, props.get("phase", "solid"), props.get("property_model", "constant"),
+                            **{key: value for key, value in kwargs.items() if key not in ("name", "phase")})
 
     t_sat_expr = props.get("t_sat_expr")
     if t_sat_expr:
@@ -147,11 +149,23 @@ HELP = """
   bc <face> <tipo> [T=v] [h=v] [T_inf=v]
        face: bottom | top | left | right
        tipo: temperature | convection | adiabatic
-  mesh nx=v ny=v [fix=auto|none]
+  mesh nx=v ny=v [fix=auto|interfaces|snap|raise]
+       interfaces: passos variáveis que preservam as bordas dos materiais.
+       snap: aproxima as bordas à grade uniforme (altera dimensões).
   show_geom        Resume dominio, regioes, BCs e malha
   build_from_geom  [tz=v] [h_int=v] [P=v]
        Gera rede nodal automaticamente. Se houver interface interna
        solido-fluido na geometria, e obrigatorio passar h_int=...
+       ou configurar flow_region com h_model=dittus_boelter.
+  flow_region <regiao> direction=y- mdot=v T_in=v [cp=v]
+       Configure antes de build_from_geom; vazão em kg/s, cp em J/(kg K).
+  flow_region <regiao> direction=y- model=iapws97 vdot=v T_in=v
+              P_in=v P_out=v h_model=dittus_boelter hydraulic_diameter=v
+       Água variável: vazão em m3/s, pressões em Pa, diâmetro em m.
+       cp e densidade a montante; temperatura de saída de cada intervalo.
+  region ... conduction_axes=x|y|xy
+       Seleciona as direções de condução, padrão xy.
+  material ... property_model=constant|u3si2_al|iapws97
 
 --- REDE NODAL DIRETA ---
   node <nome> <tipo> [Q=v] [T_fixed=v] [T_init=v] [V=v]
@@ -533,6 +547,10 @@ def cmd_material(state, args):
         if kw["phase"].lower() not in ("solid", "fluid"):
             raise ValueError("phase deve ser solid ou fluid.")
         props["phase"] = kw["phase"].lower()
+    if "property_model" in kw:
+        if kw["property_model"] not in ("constant", "u3si2_al", "iapws97"):
+            raise ValueError("property_model desconhecido.")
+        props["property_model"] = kw["property_model"]
     if not props.get("phase"):
         props["phase"] = "solid"
 
@@ -600,7 +618,8 @@ def cmd_region(state, args):
         mat   = Material(name="mat_" + nome, phase=MaterialPhase.SOLID, k=k_val)
     geom.material(nome, mat,
                   x0=fnum(kw["x0"]), x1=fnum(kw["x1"]),
-                  y0=fnum(kw["y0"]), y1=fnum(kw["y1"]))
+                  y0=fnum(kw["y0"]), y1=fnum(kw["y1"]),
+                  conduction_axes=kw.get("conduction_axes", "xy"))
     try:
         k_show = mat.prop("k", 30.0)
         k_str  = "{:.6g}".format(k_show)
@@ -627,7 +646,8 @@ def cmd_build_from_geom(state, args):
     geom = _req(state); kw = parse_kwargs(args) if args else {}
     h_int = fnum(kw["h_int"]) if "h_int" in kw else None
     P     = fnum(kw["p"])     if "p"     in kw else None
-    state.net = build_network_from_geometry(
+    builder = build_with_flows if any(r.metadata.get('flow') for r in geom.regions) else build_network_from_geometry
+    state.net = builder(
         geom,
         thickness_z=fnum(kw.get("tz", "1")),
         internal_convection_h=h_int,
@@ -635,6 +655,24 @@ def cmd_build_from_geom(state, args):
     )
     state.ids.clear()
     return f"  -> NodalNetwork: {len(state.net.nodes)} nos, {len(state.net.links)} ligacoes"
+
+
+def cmd_flow_region(state, args):
+    """Configura o escoamento antes de build_from_geom."""
+    geom = _req(state)
+    if not args:
+        raise ValueError('flow_region precisa do nome da região.')
+    region = geom.get_region(args[0])
+    if not region.material.is_fluid():
+        raise ValueError('flow_region exige uma região fluida.')
+    values = {}
+    for key, value in parse_kwargs(args[1:], lower_keys=False).items():
+        key = {'p_in': 'P_in', 'p_out': 'P_out', 't_in': 'T_in'}.get(key.lower(), key.lower())
+        if key not in ('direction', 'model', 'h_model', 'T_in', 'mdot', 'cp', 'vdot', 'P_in', 'P_out', 'hydraulic_diameter'):
+            raise ValueError(f'Opção desconhecida de flow_region: {key}')
+        values[key] = value if key in ('direction', 'model', 'h_model') else fnum(value)
+    region.metadata['flow'] = values
+    return f'  -> escoamento configurado em {region.name}'
 
 
 
@@ -1062,6 +1100,7 @@ def executar(state, linha):
                                     else "sem geometria."),
         "build_from_geom": lambda: cmd_build_from_geom(state, args),
         "fluid_chain":        lambda: cmd_fluid_chain(state, args),
+        "flow_region":        lambda: cmd_flow_region(state, args),
         "solve_transient":    lambda: cmd_solve_transient(state, args),
         "gif_transient":      lambda: cmd_gif_transient(state, args),
         "viz":             lambda: cmd_viz(state, args),

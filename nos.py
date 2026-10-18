@@ -747,6 +747,9 @@ def add_internal_link_between_cells(
         return
 
     if mode == "conduction":
+        axis = "x" if orientation == "vertical" else "y"
+        if any(axis not in r.metadata.get("conduction_axes", "xy") for r in (region_a, region_b)):
+            return
         add_conduction_between_cells(
             net=net,
             node_a=node_a,
@@ -979,7 +982,8 @@ def add_internal_convection_between_cells(
         node_j=fluid_node,
         kind=TransferKind.CONVECTION,
         name=f"conv_S{surface_id}_to_{fluid.name}",
-        conductance=convection_G(h, area),
+        conductance=None if callable(h) else convection_G(h, area),
+        conductance_func=(lambda T: convection_G(h(T, fluid), area)) if callable(h) else None,
         metadata={"h": h, "area": area},
     )
 
