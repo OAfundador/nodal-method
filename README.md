@@ -1,6 +1,6 @@
 # Método Nodal em Python
 
-Ferramenta em Python para montar e resolver redes térmicas com condução, convecção, radiação e transporte entálpico de fluido. Inclui editor visual de regiões retangulares, montagem automática da malha 2D e um núcleo para regime permanente e transiente.
+Ferramenta em Python para montar e resolver redes térmicas com condução, convecção, radiação e transporte entálpico de fluido. Inclui editor visual de regiões retangulares, montagem automática da malha 2D, associação de componentes reutilizáveis e um núcleo para regime permanente e transiente.
 
 A versão atual é a branch padrão [`codex/revisao-reproducao`](https://github.com/OAfundador/nodal-method/tree/codex/revisao-reproducao). A implementação anterior está preservada em [`legado`](https://github.com/OAfundador/nodal-method/tree/legado).
 
@@ -52,6 +52,118 @@ O menu oferece **parede uniforme**, **parede composta**, a **geometria 2D do chi
 
 Se a porta estiver ocupada, use `python app_visual.py --porta 8766`. Para iniciar sem abrir o navegador, acrescente `--sem-abrir`.
 
+## Associar componentes: de um canal a um conjunto de 25
+
+Um **componente** é um modelo individual completo: geometria, materiais, malha, fontes, contornos e escoamento. Uma **instância** reutiliza esse componente dentro de uma associação. Assim, você pode definir um canal uma vez e criar 25 instâncias, ou reunir modelos de canais diferentes na mesma saída.
+
+As instâncias desta associação são **independentes**, como em uma comparação de canais calculados separadamente. Elas não compartilham calor, pressão ou vazão automaticamente. Para representar uma placa que troca calor com dois canais, por exemplo, desenhe os três objetos em um mesmo componente e defina seus contatos; depois reutilize esse componente na associação.
+
+### Pelo desenho
+
+1. Monte ou abra seu modelo no editor. Pode ser uma parede, um canal com aquecedor ou um conjunto de combustível, revestimento e água. Os materiais e o escoamento ficam definidos nesse modelo individual.
+2. Clique em **Associar componentes**, no cabeçalho. Uma nova aba recebe o modelo atual na biblioteca. Também pode abrir `http://127.0.0.1:8765/assembly` e usar **Importar JSON** para adicionar um ou mais modelos salvos.
+3. Selecione o componente, informe a quantidade — por exemplo, **25** — e clique em **Adicionar instâncias**. Cada linha permite escolher componente, nome e fator de geração. Você pode usar vários componentes no mesmo conjunto.
+4. Para informar os fatores em lote, abra **Fatores de geração diferentes em cada instância** antes de adicionar as instâncias. Digite um valor por instância, separado por espaço ou ponto e vírgula, com ponto decimal. Uma lista vazia usa fator 1 em todas.
+5. Clique em **Calcular associação**. Escolha a região do mapa, o eixo e a unidade. Clique em uma coluna ou use o seletor para consultar os perfis e a tabela daquela instância.
+6. Use **Salvar JSON** ou **Exportar .txt** para guardar a definição completa. **CSV**, **Imagem PNG** e **Relatório HTML** salvam as saídas. O HTML inclui os dados e os gráficos e pode ser aberto sem servidor.
+
+Para experimentar imediatamente, clique em **Abrir exemplo de 25 canais** e depois em **Calcular associação**. O exemplo usa um aquecedor e um canal de água com dados sintéticos, publicados em [JSON](exemplos/associacao_25_canais.json) e [TXT](exemplos/associacao_25_canais.txt).
+
+Na biblioteca, **Editar no desenho** abre o componente em outra aba. Faça as alterações e clique em **Atualizar associação** nessa aba: todas as instâncias que referenciam o componente passam a usar a nova definição. Resolva o conjunto novamente. Para criar uma variante, use **Duplicar** e atribua a cópia às instâncias desejadas. **Desfazer** recupera a definição anterior; um componente em uso só pode ser excluído depois de remover suas instâncias.
+
+O **fator de geração** multiplica somente as fontes volumétricas de todas as regiões da instância. Fator 1 mantém a geração original; 0 a desliga; 2 a duplica. Os materiais, contornos, coeficientes de troca e vazões permanecem os do componente. Para mudar esses dados em apenas alguns canais, crie outro componente e selecione-o nas linhas correspondentes. Correlações registradas de propriedades e de convecção são reavaliadas durante cada solução.
+
+### Por comandos ou arquivo `.txt`
+
+Execute o exemplo incluído, a partir da raiz do repositório:
+
+```bash
+python exemplos/nodal_repl.py exemplos/associacao_25_canais.txt --csv saidas/associacao/temperaturas.csv
+```
+
+O arquivo faz a associação com estes comandos:
+
+```text
+component_load canal file=componentes/canal_aquecido.json
+assembly "Associação didática de 25 canais"
+assembly_view axis=y region=aquecedor unit=C offset_m=0
+for i=1..25
+    associate canal_$i component=canal source_factor=$((i-1)/12) name="Canal $i"
+end
+solve_assembly
+```
+
+Os fatores `(i-1)/12` vão de 0 a 2 e servem apenas para demonstrar o recurso. Substitua-os pelos valores do seu caso. O caminho de `component_load` é relativo à pasta do `.txt` que está sendo executado. No prompt interativo, ele é relativo à pasta onde você iniciou o programa; nesse caso, use `file=exemplos/componentes/canal_aquecido.json`.
+
+Ao definir materiais por comandos, `property_model=constant` usa as propriedades que você informou, sem herdar correlações de um material predefinido com o mesmo nome. Sem `property_model` explícito, continua valendo a sobreposição histórica dos campos sobre a biblioteca do REPL.
+
+Se a geometria já está definida no terminal, depois de `mesh` e `build_from_geom` use `component_save canal` para cadastrá-la na biblioteca da sessão. Para aproveitar um arquivo existente, `component_load` aceita o JSON do editor ou um `.txt` com geometria compatível; ao importar o `.txt`, seus comandos de solução e exportação são omitidos. Depois de cadastrar seus componentes, use `assembly`, `associate` e `solve_assembly` como no exemplo. `assembly` inicia um conjunto novo e preserva os componentes cadastrados; `assembly_reset` limpa a biblioteca e o conjunto.
+
+Após resolver, estes comandos salvam os dados e o relatório:
+
+```text
+export csv=saidas/associacao/temperaturas.csv
+assembly_save file=saidas/associacao/conjunto.json
+assembly_save file=saidas/associacao/conjunto.txt
+assembly_report file=saidas/associacao/relatorio.html
+```
+
+Para reabrir pelo terminal:
+
+```text
+assembly_load file=saidas/associacao/conjunto.json
+solve_assembly
+```
+
+Os arquivos salvos por `assembly_save` incorporam os componentes e não dependem dos arquivos originais. O `.txt` portátil também pode ser executado com `python exemplos/nodal_repl.py conjunto.txt` ou aberto em **Abrir associação** na interface. Esse importador visual lê somente o formato portátil exportado pela ferramenta; arquivos gerais com loops ou `component_load` devem ser executados no terminal e então salvos como associação portátil.
+
+### Diretamente em Python
+
+O mesmo modelo e o mesmo solver são usados nos três modos. Este exemplo completo, executado na raiz do repositório, cria e resolve a associação:
+
+```python
+import json
+from pathlib import Path
+from associacao import ModelAssembly
+from visual.relatorio_associacao import export_report
+
+modelo = json.loads(Path("exemplos/componentes/canal_aquecido.json").read_text(encoding="utf-8"))
+conjunto = ModelAssembly(name="Associação didática de 25 canais")
+conjunto.add_component("canal", modelo)
+for i in range(1, 26):
+    conjunto.associate(f"canal_{i}", "canal",
+                       source_factor=(i - 1) / 12, name=f"Canal {i}")
+conjunto.set_view({"axis": "y", "region": "aquecedor", "unit": "C"})
+resultado = conjunto.solve()
+conjunto.export_csv("saidas/associacao/temperaturas.csv")
+export_report(conjunto, "saidas/associacao/relatorio.html")
+print(resultado["maximum_C"])
+```
+
+O script [associar_componentes.py](exemplos/associar_componentes.py) executa esse fluxo e também grava os arquivos JSON e TXT:
+
+```bash
+python exemplos/associar_componentes.py --saida saidas/associacao
+```
+
+### O que conferir no exemplo
+
+O componente [canal_aquecido.json](exemplos/componentes/canal_aquecido.json) também está disponível em [comandos TXT](exemplos/componentes/canal_aquecido.txt) e no menu do desenho como **Canal aquecido · balanço exato**. Há 10 intervalos axiais, geração uniforme, propriedades constantes e entrada a 20 °C. A geração total do aquecedor é 8 W para fator 1; a vazão é 0,01 kg/s e `cp = 4200 J/(kg·K)`. Sem perdas externas, a temperatura de saída deve satisfazer `T_saida = 20 + 8 × fator / (0,01 × 4200)`.
+
+| Instância | Fator | Potência [W] | Água na saída [°C] | Máxima no aquecedor [°C] |
+| --- | ---: | ---: | ---: | ---: |
+| Canal 1 | 0 | 0 | 20,000000 | 20,000000 |
+| Canal 13 | 1 | 8 | 20,190476 | 24,323810 |
+| Canal 25 | 2 | 16 | 20,380952 | 28,647619 |
+
+![Mapa dos 25 canais sintéticos, com o aquecedor selecionado](docs/associacao_25_canais.png)
+
+Este exemplo é uma verificação didática por balanço de energia. Seus parâmetros e fatores são sintéticos e não representam os dados de entrada do caso local da placa de reator. Os benchmarks de literatura continuam documentados em [BENCHMARKS.md](BENCHMARKS.md).
+
+No mapa do conjunto, cada coluna representa uma instância na ordem da lista. Cada faixa mostra a **maior temperatura das células** da região selecionada naquele intervalo do eixo; o perfil por região usa o mesmo critério. O mapa é uma comparação das instâncias, não a planta geométrica de um núcleo. O deslocamento da origem apenas ajusta os rótulos do eixo. O CSV conserva todas as células, com identificador da instância, componente, fator, região, material, índices, coordenadas em metros e temperaturas em °C/K. Para temperaturas de faces, consulte a solução individual retornada pela API Python.
+
+A associação aceita até **50 componentes, 100 instâncias e 20.000 células de domínio somadas**, mantendo os limites de 900 células e 1600 incógnitas por modelo individual. A definição enviada à interface deve ter até 1 MB. Ela usa o formato geométrico do editor: fontes volumétricas constantes por região, propriedades constantes, `k(T)` polinomial ou correlações registradas. Redes montadas diretamente com `node`/`link`, funções arbitrárias, tabelas de propriedades e fontes espaciais continuam disponíveis no núcleo/REPL; não são convertidas automaticamente para esse formato. Uma construção incompatível é recusada com mensagem de erro.
+
 ## Executar os benchmarks e testes
 
 ```bash
@@ -62,7 +174,7 @@ python validacao_onur.py
 python -m unittest discover -s tests -v
 ```
 
-Os benchmarks verificam os balanços e a redução do erro ao refinar a malha ou o passo de tempo. A suíte também cobre os exemplos antigos, entradas inválidas, exportação e a API local.
+Os benchmarks verificam os balanços e a redução do erro ao refinar a malha ou o passo de tempo. A suíte também cobre os exemplos antigos, entradas inválidas, exportação, API local e associação de componentes. Para a associação, compara todas as células entre Python, JSON, comandos interativos e TXT, verifica o balanço dos 25 canais e confere que a biblioteca original é preservada.
 
 `validacao_onur.py` gera `saidas_comparacao/onur.html`, curvas e históricos adimensionais das duas faces, com os parâmetros das figuras 2 e 5 de Onur & Sivrioglu (1993). Também é possível gerar o relatório pelo botão **Benchmarks** do editor. A análise explicita diferenças entre as equações e a figura 8, sem ajustar parâmetros para forçar uma reprodução.
 
@@ -80,6 +192,7 @@ O [CSV dos resultados](resultados/placa_reator.csv) inclui as máximas e as temp
 ## Melhorias desta versão
 
 - Editor com cadastro de materiais, desenho, movimento e redimensionamento de regiões, malha conectada e mapa de temperaturas.
+- Biblioteca de componentes reutilizáveis e associações de instâncias independentes pelo desenho, comandos, TXT e Python, com mapa do conjunto, perfis, CSV e relatório HTML portátil.
 - Contornos de temperatura, fluxo, isolamento, convecção, radiação e convecção + radiação na mesma superfície.
 - Execução de arquivos organizada em `CaseRunner`, com mensagens de erro por linha e exportação CSV.
 - Opções de tolerância e iteração do REPL aplicadas ao solver; convergência conferida pelo resíduo do balanço.
@@ -156,6 +269,8 @@ Digite comandos diretamente e resolva qualquer problema passo a passo:
 | `comandos_canal.txt` | Canal aquecido com transporte entálpico | `fluid_chain`, `node`, `link` |
 | `comandos_canal_acoplado.txt` | Dois canais acoplados por placa combustível | `node`, `link`, `fluid_chain` |
 | `comandos_tubo.txt` | Troca de calor em tubo cilíndrico | `node`, `link`, `g_cond`, `g_conv` |
+| `associacao_25_canais.txt` | 25 instâncias de um canal aquecido, dados sintéticos | `component_load`, `assembly`, `associate`, `solve_assembly` |
+| `componentes/canal_aquecido.txt` | Componente individual com balanço de energia analítico | `domain`, `region`, `flow_region`, `build_from_geom` |
 
 ---
 
@@ -168,6 +283,7 @@ Digite comandos diretamente e resolva qualquer problema passo a passo:
 | `condutancias.py` | `conduction_G`, `convection_G`, série/paralelo |
 | `nos.py` | `NodalNetwork` — monta o resíduo `R(T)` e gerencia os links |
 | `solver.py` | `solve_steady_state` — Newton-FD com fallback `scipy.optimize.root` |
+| `associacao.py` | `ModelAssembly` — biblioteca, instâncias, validação, solução e formatos portáteis |
 | `visual/` | Modelo validado, servidor local e interface do editor |
 | `app_visual.py` | Inicia o editor no navegador |
 | `validacao_*.py` | Casos de referência e geração dos relatórios |

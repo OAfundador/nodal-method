@@ -159,6 +159,37 @@ class LocalApiTests(unittest.TestCase):
         self.assertEqual(len(result["cells"]), 96)
         self.assertLessEqual(result["residual_W"], 1e-7)
 
+    def test_assembly_api_matches_python_and_portable_import(self):
+        from exemplos.associar_componentes import build_example
+        group = build_example()
+        # A small group verifies every cell through the actual HTTP parser.
+        group.instances = group.instances[:3]
+        expected = group.solve()
+        def post(route, payload):
+            request = urllib.request.Request(self.base + '/api/assembly/' + route,
+                data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(request) as response:
+                return json.load(response)
+        validated = post('validate', group.to_dict())
+        self.assertEqual(validated, group.to_dict())
+        self.assertEqual(post('solve', validated), expected)
+        portable = post('repl', validated)
+        self.assertEqual(post('import', portable), validated)
+        for payload in ([], {'text': 'let x = 1/0'}):
+            with self.subTest(payload=payload), self.assertRaises(urllib.error.HTTPError) as error:
+                post('import', payload)
+            self.assertEqual(error.exception.code, 400)
+
+    def test_assembly_assets_and_public_example_are_accessible(self):
+        for path, fragment in (('/assembly', 'Associação de componentes'),
+                               ('/assembly.js', 'AssemblyApp'), ('/assembly.css', '.component-card')):
+            with urllib.request.urlopen(self.base + path) as response:
+                self.assertIn(fragment, response.read().decode('utf-8'))
+        with urllib.request.urlopen(self.base + '/api/assembly/example') as response:
+            group = json.load(response)
+        self.assertEqual(len(group['instances']), 25)
+        self.assertEqual(group['kind'], 'assembly')
+
     def test_local_case_files_are_not_served(self):
         for path in ("/comparacao/relatorio.html", "/comparacao/resumo.json", "/comparacao/saida_placa.csv"):
             with self.subTest(path=path), self.assertRaises(urllib.error.HTTPError) as error:

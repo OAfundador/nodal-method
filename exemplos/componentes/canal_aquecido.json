@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "name": "Canal aquecido · exemplo didático",
+  "domain": {
+    "width": 0.012,
+    "height": 0.2,
+    "thickness": 0.02
+  },
+  "mesh": {
+    "nx": 2,
+    "ny": 10,
+    "align": true,
+    "h_internal": 500
+  },
+  "materials": [
+    {
+      "id": "aquecedor",
+      "name": "aquecedor",
+      "phase": "solid",
+      "k": 15,
+      "color": "#d59b61"
+    },
+    {
+      "id": "agua",
+      "name": "agua",
+      "phase": "fluid",
+      "k": 0.6,
+      "cp": 4200,
+      "color": "#719db7"
+    }
+  ],
+  "regions": [
+    {
+      "id": "aquecedor",
+      "name": "Aquecedor",
+      "material": "aquecedor",
+      "x0": 0.0,
+      "x1": 0.002,
+      "y0": 0.0,
+      "y1": 0.2,
+      "source": 1000000.0,
+      "conduction_axes": "x"
+    },
+    {
+      "id": "agua",
+      "name": "Água",
+      "material": "agua",
+      "x0": 0.002,
+      "x1": 0.012,
+      "y0": 0.0,
+      "y1": 0.2,
+      "source": 0.0,
+      "flow": {
+        "direction": "y-",
+        "mdot": 0.01,
+        "T_in": 20
+      }
+    }
+  ],
+  "boundaries": {
+    "left": {
+      "kind": "adiabatic"
+    },
+    "right": {
+      "kind": "adiabatic"
+    },
+    "top": {
+      "kind": "adiabatic"
+    },
+    "bottom": {
+      "kind": "adiabatic"
+    }
+  }
+}

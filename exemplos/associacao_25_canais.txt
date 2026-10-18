@@ -1,0 +1,17 @@
+# Exemplo didático: dados sintéticos, independentes do trabalho local.
+# Caminhos de componentes são relativos a este arquivo.
+component_load canal file=componentes/canal_aquecido.json
+assembly "Associação didática de 25 canais"
+assembly_view axis=y region=aquecedor unit=C offset_m=0
+
+# Cada instância reutiliza a mesma definição. O fator multiplica apenas
+# a geração volumétrica, preservando materiais, contornos e vazão.
+for i=1..25
+    associate canal_$i component=canal source_factor=$((i-1)/12) name="Canal $i"
+end
+solve_assembly
+# Use --csv saidas/associacao/temperaturas.csv para exportar os resultados.
+# No prompt, também estão disponíveis:
+# assembly_save file=saidas/associacao/conjunto.json
+# assembly_save file=saidas/associacao/conjunto.txt
+# assembly_report file=saidas/associacao/relatorio.html

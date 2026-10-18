@@ -71,9 +71,13 @@ class ReplTests(unittest.TestCase):
                 lines = [line for line in path.read_text(encoding="utf-8").splitlines()
                          if line.strip().split(maxsplit=1)[:1] not in (["viz"], ["gif"])]
                 runner = CaseRunner()
+                runner.state.base_dir = path.parent
                 runner.run_lines(lines, source=path.name)
-                self.assertIsNotNone(runner.state.last_result)
-                self.assertTrue(runner.state.last_result.success)
+                if runner.state.last_mode == 'assembly':
+                    self.assertTrue(runner.state.assembly.result['success'])
+                else:
+                    self.assertIsNotNone(runner.state.last_result)
+                    self.assertTrue(runner.state.last_result.success)
 
     def test_list_cli_does_not_enter_repl(self):
         with redirect_stdout(io.StringIO()) as stream:

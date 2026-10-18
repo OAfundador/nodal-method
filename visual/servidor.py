@@ -7,6 +7,7 @@ import threading
 from urllib.parse import urlsplit
 
 from visual.modelo import VisualModel, demo_cases
+from associacao import ModelAssembly
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).with_name("static")
@@ -46,8 +47,13 @@ class NodalRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/examples":
             self._reply(200, demo_cases())
             return
+        if path == '/api/assembly/example':
+            self._reply(200, json.loads((ROOT / 'exemplos/associacao_25_canais.json').read_text(encoding='utf-8')))
+            return
         files = {"/": STATIC / "index.html", "/app.js": STATIC / "app.js",
                  "/geometry.js": STATIC / "geometry.js", "/style.css": STATIC / "style.css"}
+        files.update({'/assembly': STATIC / 'assembly.html', '/assembly.js': STATIC / 'assembly.js',
+                      '/assembly.css': STATIC / 'assembly.css'})
         if path.startswith(("/benchmarks/", "/comparacao/")):
             name = path.split("/", 2)[2]
             if name in {"literatura.csv", "literatura.json", "benchmarks_online.json", "onur.html",
@@ -68,15 +74,21 @@ class NodalRequestHandler(BaseHTTPRequestHandler):
             if not 0 < length <= 1024 * 1024:
                 raise ValueError("O modelo deve ter até 1 MB.")
             payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError('Envie um objeto JSON com a definição do modelo.')
             route = urlsplit(self.path).path
-            if route not in ("/api/mesh", "/api/solve", "/api/repl", "/api/literature", "/api/onur"):
+            if route not in ("/api/mesh", "/api/solve", "/api/repl", "/api/literature", "/api/onur",
+                              '/api/assembly/validate', '/api/assembly/solve', '/api/assembly/repl', '/api/assembly/import'):
                 self._reply(404, {"error": "Operação não encontrada."})
                 return
             if not COMPUTE_LOCK.acquire(blocking=False):
                 self._reply(409, {"error": "Há um cálculo em andamento. Aguarde sua conclusão."})
                 return
             try:
-                if route == "/api/literature":
+                if route.startswith('/api/assembly/'):
+                    model = ModelAssembly.from_repl(payload.get('text')) if route.endswith('/import') else ModelAssembly(payload)
+                    response = (model.solve() if route.endswith('/solve') else {'text': model.to_repl()} if route.endswith('/repl') else model.to_dict())
+                elif route == "/api/literature":
                     from validacao_livro import BookBenchmarks
                     from validacao_online import OnlineBenchmarks
                     from validacao_onur import combined_benchmark

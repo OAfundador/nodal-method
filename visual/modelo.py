@@ -382,7 +382,22 @@ def demo_cases():
             "boundaries": {"bottom": {"kind": "temperature", "T": 44}, "left": {"kind": "adiabatic"}, "right": {"kind": "adiabatic"}, "top": {"kind": "adiabatic"}},
             "benchmark": {"kind": "chip2d", "source": "Adaptação 2D do exemplo existente interativo_chip.txt; livro, exercício 1(a), pp. 58-60.",
                           "description": "A rede geométrica distribuída resulta em aproximadamente 66,4854 °C. O modelo concentrado do livro resulta em 66,3375 °C; são discretizações diferentes."}}
-    return {"composite": common, "uniform": uniform, "chip": chip, "nafems_t4": nafems_t4_case()}
+    return {"composite": common, "uniform": uniform, "chip": chip, "nafems_t4": nafems_t4_case(),
+            "heated_channel": heated_channel_case()}
+
+
+def heated_channel_case():
+    """Exemplo sintético de reutilização: 8 W aquecem um escoamento de 0,01 kg/s."""
+    return {'version': 1, 'name': 'Canal aquecido · exemplo didático',
+            'domain': {'width': .012, 'height': .2, 'thickness': .02},
+            'mesh': {'nx': 2, 'ny': 10, 'align': True, 'h_internal': 500},
+            'materials': [{'id': 'aquecedor', 'name': 'aquecedor', 'phase': 'solid', 'k': 15, 'color': '#d59b61'},
+                          {'id': 'agua', 'name': 'agua', 'phase': 'fluid', 'k': .6, 'cp': 4200, 'color': '#719db7'}],
+            'regions': [{'id': 'aquecedor', 'name': 'Aquecedor', 'material': 'aquecedor', 'x0': 0., 'x1': .002,
+                         'y0': 0., 'y1': .2, 'source': 1e6, 'conduction_axes': 'x'},
+                        {'id': 'agua', 'name': 'Água', 'material': 'agua', 'x0': .002, 'x1': .012,
+                         'y0': 0., 'y1': .2, 'source': 0., 'flow': {'direction': 'y-', 'mdot': .01, 'T_in': 20}}],
+            'boundaries': {side: {'kind': 'adiabatic'} for side in ('left', 'right', 'top', 'bottom')}}
 
 
 def nafems_t4_case(nx=18, ny=30):

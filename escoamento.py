@@ -66,7 +66,9 @@ def property_material(name, phase, property_model='constant', **properties):
             properties[key + '_func'] = lambda T, P, key=key: getattr(water_properties(T, P), key)
     elif property_model != 'constant':
         raise ValueError('Modelo de propriedades desconhecido.')
-    return Material(name=name, phase=phase, **properties)
+    material = Material(name=name, phase=phase, **properties)
+    material.property_model = property_model
+    return material
 
 
 def _positive(value, name):

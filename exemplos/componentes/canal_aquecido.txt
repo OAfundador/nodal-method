@@ -1,0 +1,16 @@
+# Caso exportado pelo editor visual. Unidades SI; temperatura em °C.
+domain W=0.012 H=0.2
+material aquecedor phase=solid k=15.0 property_model=constant
+material agua phase=fluid k=0.6 property_model=constant cp=4200.0
+region aquecedor mat=aquecedor x0=0.0 x1=0.002 y0=0.0 y1=0.2 conduction_axes=x
+source aquecedor q=1000000.0
+region agua mat=agua x0=0.002 x1=0.012 y0=0.0 y1=0.2 conduction_axes=xy
+source agua q=0.0
+flow_region agua direction=y- T_in=20.0 mdot=0.01
+bc left adiabatic
+bc right adiabatic
+bc top adiabatic
+bc bottom adiabatic
+mesh nx=2 ny=10 fix=interfaces
+build_from_geom tz=0.02 h_int=500.0
+solve tol=1e-7 max_iter=100 linhas=0

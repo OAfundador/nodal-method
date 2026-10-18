@@ -17,6 +17,8 @@ import csv as _csv
 import argparse
 import math as _math
 import shlex
+import json
+from copy import deepcopy
 import sys
 from dataclasses import dataclass as _dataclass, field as _field
 from pathlib import Path
@@ -31,6 +33,7 @@ from condutancias import conduction_G, convection_G
 from geometria import Geometry2D
 from materiais import Material, MaterialPhase
 from escoamento import property_material, build_with_flows
+from associacao import ModelAssembly, component_from_geometry, identifier
 from nos import (
     NodalNetwork, NodeKind, TransferKind, LinkDirection,
     build_network_from_geometry, conduction_func_between_nodes,
@@ -212,6 +215,22 @@ HELP = """
   viz  [png=arquivo.png] [titulo=Texto]
   gif  [gif=arquivo.gif] [fps=10] [steps=40] [dpi=100] [titulo=Texto]
 
+--- COMPONENTES E ASSOCIAÇÕES INDEPENDENTES ---
+  component_save nome                       # captura geometria/malha atuais
+  component_load nome file=modelo.json|caso.txt
+  assembly "Nome do conjunto"               # preserva a biblioteca, zera instâncias
+  associate canal_1 component=nome source_factor=1 name="Canal 1"
+  solve_assembly
+  assembly_view axis=y region=regiao unit=C offset_m=0
+  assembly_save file=conjunto.json|conjunto.txt
+  assembly_load file=conjunto.json|conjunto.txt
+  assembly_report file=relatorio.html        # depois de solve_assembly
+  export csv=temperaturas.csv                # exporta a última solução
+  assembly_reset                            # zera biblioteca e associação
+  component_json nome JSON_LITERAL           # formato portátil do componente
+  assembly_json JSON_LITERAL                 # formato portátil do conjunto
+  Cada instância é independente; source_factor multiplica só as fontes volumétricas.
+
 --- CONTROLE ---
   help / quit / exit
 ============================================================
@@ -328,9 +347,17 @@ class EstadoREPL:
         self.vars = {}          # let var = expr
         self.for_stack = []     # bloco for ... end
         self.last_result = None
+        self.components = {}
+        self.assembly = None
+        self.last_mode = 'single'
+        self.base_dir = Path.cwd()
+        self.build_options = {'thickness': 1., 'h_internal': None, 'pressure': None}
+        self.definition_only = False
 
     def reset(self):
+        base_dir, definition_only = self.base_dir, self.definition_only
         self.__init__()
+        self.base_dir, self.definition_only = base_dir, definition_only
 
 
 def parse_kwargs(tokens, lower_keys=True):
@@ -438,6 +465,7 @@ def cmd_solve(state, args=None):
         raise ValueError("linhas deve ser não negativo.")
     r = solve_steady_state(state.net, tol=tol, max_iter=max_iter)
     state.last_result = r
+    state.last_mode = 'single'
     if not r.success:
         raise RuntimeError(f"não convergiu: |R|={r.residual_norm:.3e}, tol={tol:g}. {r.message}")
     out = [f"  convergiu={r.success}, |R|={r.residual_norm:.2e}, iter={r.iterations}"]
@@ -457,6 +485,9 @@ def cmd_export(state, args):
     if set(kw) != {"csv"}:
         raise ValueError("uso: export csv=arquivo.csv")
     path = Path(kw["csv"])
+    if state.last_mode == 'assembly' and state.assembly is not None:
+        state.assembly.export_csv(path)
+        return f'  -> resultados de {len(state.assembly.instances)} instâncias exportados para {path}'
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = _csv.writer(stream)
@@ -513,8 +544,10 @@ def cmd_material(state, args):
         raise ValueError("material precisa de nome. Ex: material cobre k=380")
     nome = args[0].lower()
     kw   = parse_kwargs(args[1:]) if len(args) > 1 else {}
-    # Merge sobre o builtin: usuario sobrepoe campos individuais.
-    props = dict(_MATERIAIS_BUILTIN.get(nome, {}))
+    # Sem modelo explícito, mantém a sobreposição histórica sobre o builtin.
+    # Um modelo escolhido explicitamente não herda outras leis de propriedades.
+    builtin = _MATERIAIS_BUILTIN.get(nome, {})
+    props = ({'phase': builtin.get('phase', 'solid')} if 'property_model' in kw else dict(builtin))
 
     # Constantes explicitas derrubam expr/poly herdados para a mesma propriedade.
     for campo in ("k", "rho", "cp", "mu"):
@@ -646,6 +679,7 @@ def cmd_build_from_geom(state, args):
     geom = _req(state); kw = parse_kwargs(args) if args else {}
     h_int = fnum(kw["h_int"]) if "h_int" in kw else None
     P     = fnum(kw["p"])     if "p"     in kw else None
+    state.build_options = {'thickness': fnum(kw.get('tz', '1')), 'h_internal': h_int, 'pressure': P}
     builder = build_with_flows if any(r.metadata.get('flow') for r in geom.regions) else build_network_from_geometry
     state.net = builder(
         geom,
@@ -673,6 +707,132 @@ def cmd_flow_region(state, args):
         values[key] = value if key in ('direction', 'model', 'h_model') else fnum(value)
     region.metadata['flow'] = values
     return f'  -> escoamento configurado em {region.name}'
+
+
+def register_component(state, name, model):
+    identifier(name, 'Componente')
+    if name in state.components:
+        raise ValueError(f'O componente {name} já existe. Use outro nome ou assembly_reset.')
+    if len(state.components) >= ModelAssembly.MAX_COMPONENTS:
+        raise ValueError('A biblioteca de componentes atingiu o limite.')
+    # Valida sem resolver e preserva uma cópia independente da geometria atual.
+    group = ModelAssembly()
+    group.add_component(name, model)
+    if state.assembly is not None:
+        state.assembly.add_component(name, model)
+    state.components[name] = deepcopy(model)
+    return f'  -> componente {name} cadastrado'
+
+
+def cmd_component_json(state, args):
+    if len(args) != 2:
+        raise ValueError('uso: component_json nome JSON_LITERAL')
+    return register_component(state, args[0], json.loads(args[1]))
+
+
+def cmd_assembly_json(state, args):
+    if len(args) != 1:
+        raise ValueError('uso: assembly_json JSON_LITERAL')
+    group = ModelAssembly(json.loads(args[0]))
+    state.assembly = group
+    state.components = deepcopy(group.components)
+    state.last_mode = 'assembly'
+    return '  -> associação portátil aberta; use solve_assembly para calcular'
+
+
+def cmd_component_save(state, args):
+    if len(args) != 1:
+        raise ValueError('uso: component_save nome')
+    data = component_from_geometry(state.geom, name=args[0], **state.build_options)
+    return register_component(state, args[0], data)
+
+
+def cmd_component_load(state, args):
+    if not args:
+        raise ValueError('uso: component_load nome file=modelo.json|caso.txt')
+    kw = parse_kwargs(args[1:])
+    if set(kw) != {'file'}:
+        raise ValueError('uso: component_load nome file=modelo.json|caso.txt')
+    path = Path(kw['file'])
+    path = path if path.is_absolute() else state.base_dir / path
+    if path.suffix.lower() == '.txt':
+        runner = CaseRunner()
+        runner.state.definition_only = True
+        source = runner.run_file(path)
+        model = component_from_geometry(source.geom, name=args[0], **source.build_options)
+    else:
+        model = json.loads(path.read_text(encoding='utf-8-sig'))
+    return register_component(state, args[0], model)
+
+
+def cmd_assembly(state, args):
+    if len(args) != 1:
+        raise ValueError('uso: assembly "Nome do conjunto"')
+    group = ModelAssembly(name=args[0])
+    for key, model in state.components.items():
+        group.add_component(key, model)
+    state.assembly = group
+    state.last_mode = 'assembly'
+    return f'  -> associação {args[0]!r} criada; componentes da biblioteca preservados'
+
+
+def cmd_associate(state, args):
+    if state.assembly is None:
+        raise ValueError('Crie a associação com assembly antes de associate.')
+    if not args:
+        raise ValueError('uso: associate nome component=base [source_factor=1] [name="Canal 1"]')
+    kw = parse_kwargs(args[1:])
+    if set(kw) - {'component', 'source_factor', 'name'}:
+        raise ValueError('Opção de associate desconhecida.')
+    state.assembly.associate(args[0], kw.get('component'), source_factor=kw.get('source_factor', 1), name=kw.get('name'))
+    return f'  -> instância {args[0]} associada'
+
+
+def cmd_solve_assembly(state, args):
+    if args or state.assembly is None:
+        raise ValueError('uso: solve_assembly (depois de criar e preencher a associação)')
+    result = state.assembly.solve()
+    state.last_mode = 'assembly'
+    return (f'  -> {result["count"]} instâncias calculadas; máxima={result["maximum_C"]:.6f} C; '
+            f'maior resíduo={result["max_residual_W"]:.3e} W')
+
+
+def cmd_assembly_view(state, args):
+    if state.assembly is None:
+        raise ValueError('Crie uma associação antes de configurar seu mapa.')
+    state.assembly.set_view(parse_kwargs(args))
+    return '  -> visualização da associação atualizada'
+
+
+def cmd_assembly_file(state, args, *, load=False, report=False):
+    kw = parse_kwargs(args)
+    if set(kw) != {'file'}:
+        raise ValueError('Informe file=arquivo.')
+    path = Path(kw['file'])
+    if load:
+        path = path if path.is_absolute() else state.base_dir / path
+        text = path.read_text(encoding='utf-8-sig')
+        state.assembly = ModelAssembly.from_repl(text) if path.suffix.lower() == '.txt' else ModelAssembly(json.loads(text))
+        state.components = deepcopy(state.assembly.components)
+        state.last_mode = 'assembly'
+    elif state.assembly is None:
+        raise ValueError('Crie uma associação primeiro.')
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if report:
+            from visual.relatorio_associacao import export_report
+            export_report(state.assembly, path)
+        else:
+            text = state.assembly.to_repl() if path.suffix.lower() == '.txt' else json.dumps(state.assembly.to_dict(), ensure_ascii=False, indent=2)
+            path.write_text(text, encoding='utf-8')
+    return f'  -> associação {"aberta" if load else "salva"}: {path}'
+
+
+def cmd_assembly_reset(state):
+    state.components = {}
+    state.assembly = None
+    state.last_mode = 'single'
+    return '  -> biblioteca e associação zeradas; geometria atual preservada'
 
 
 
@@ -1066,6 +1226,12 @@ def executar(state, linha):
     if raw.lower() == "end":
         raise ValueError("end sem um bloco for aberto.")
 
+    # JSON é um dado literal, inclusive dentro de loops; nunca interpola $.
+    literal_command = raw.split(maxsplit=1)[0].lower()
+    if literal_command in ('component_json', 'assembly_json'):
+        handler = cmd_component_json if literal_command == 'component_json' else cmd_assembly_json
+        return handler(state, shlex.split(raw, comments=True)[1:]), False
+
     # Interpolacao $var e $(expr)
     raw = _interpolate(raw, state)
 
@@ -1077,6 +1243,8 @@ def executar(state, linha):
     if not tokens:
         return "", False
     cmd = tokens[0].lower(); args = tokens[1:]
+    if state.definition_only and cmd in {'solve', 'solve_assembly', 'solve_transient', 'gif_transient', 'viz', 'gif', 'export', 'quit', 'exit', 'q', 'assembly_save', 'assembly_report'}:
+        return '', False
     if cmd in ("quit","exit","q"): return "Saindo.", True
     cmds = {
         "help":            lambda: HELP,
@@ -1101,6 +1269,16 @@ def executar(state, linha):
         "build_from_geom": lambda: cmd_build_from_geom(state, args),
         "fluid_chain":        lambda: cmd_fluid_chain(state, args),
         "flow_region":        lambda: cmd_flow_region(state, args),
+        "component_save":    lambda: cmd_component_save(state, args),
+        "component_load":    lambda: cmd_component_load(state, args),
+        "assembly":          lambda: cmd_assembly(state, args),
+        "assembly_view":     lambda: cmd_assembly_view(state, args),
+        "associate":         lambda: cmd_associate(state, args),
+        "solve_assembly":    lambda: cmd_solve_assembly(state, args),
+        "assembly_reset":    lambda: cmd_assembly_reset(state),
+        "assembly_save":     lambda: cmd_assembly_file(state, args),
+        "assembly_load":     lambda: cmd_assembly_file(state, args, load=True),
+        "assembly_report":   lambda: cmd_assembly_file(state, args, report=True),
         "solve_transient":    lambda: cmd_solve_transient(state, args),
         "gif_transient":      lambda: cmd_gif_transient(state, args),
         "viz":             lambda: cmd_viz(state, args),
@@ -1172,8 +1350,14 @@ class CaseRunner:
         return self.state
 
     def run_file(self, path, *, on_output=None):
-        with Path(path).open(encoding="utf-8-sig") as stream:
-            return self.run_lines(stream, source=str(path), on_output=on_output)
+        path = Path(path).resolve()
+        previous = self.state.base_dir
+        self.state.base_dir = path.parent
+        try:
+            with path.open(encoding="utf-8-sig") as stream:
+                return self.run_lines(stream, source=str(path), on_output=on_output)
+        finally:
+            self.state.base_dir = previous
 
     def export_csv(self, path):
         return cmd_export(self.state, ["csv=" + str(path)])
@@ -1186,7 +1370,7 @@ def rodar_arquivo(caminho, *, quiet=False):
         if not quiet and raw:
             print(f"\n>>> {raw}")
         command = raw.strip().split(maxsplit=1)[0].lower() if raw.strip() else ""
-        if output and (not quiet or command in {"solve", "export", "viz", "gif"}):
+        if output and (not quiet or command in {"solve", "solve_assembly", "export", "viz", "gif", "assembly_save", "assembly_report"}):
             print(output)
     return CaseRunner().run_file(caminho, on_output=show)
 

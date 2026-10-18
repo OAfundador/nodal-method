@@ -14,6 +14,7 @@ class NodalEditor {
     this.model = null; this.examples = {}; this.selected = null; this.activeMaterial = null;
     this.tool = 'select'; this.mesh = null; this.result = null; this.view = 'geometry';
     this.history = []; this.drag = null; this.zoom = 1; this.busy = false; this.editMaterial = null;
+    this.associationWindow = null; this.componentTarget = null;
     this.bind();
   }
 
@@ -22,6 +23,7 @@ class NodalEditor {
       const response = await fetch('/api/examples');
       if (!response.ok) throw new Error('Não foi possível carregar os exemplos.');
       this.examples = await response.json(); this.loadModel(this.examples.composite, false, 'composite');
+      if (window.opener) window.opener.postMessage({type: 'editor-ready'}, location.origin);
     } catch (error) { this.toast(error.message); }
   }
 
@@ -90,6 +92,28 @@ class NodalEditor {
   }
 
   bind() {
+    $('associate-model').addEventListener('click', () => {
+      if (this.componentTarget) {
+        this.componentTarget.source.postMessage({type: 'component-updated', componentKey: this.componentTarget.key, model: clone(this.model)}, location.origin);
+        this.toast('Componente enviado à associação. Resolva o conjunto novamente.');
+      } else {
+        this.associationWindow = window.open('/assembly', '_blank');
+        if (!this.associationWindow) this.toast('Permita abrir a aba de associação.');
+      }
+    });
+    window.addEventListener('message', event => {
+      if (event.origin !== location.origin) return;
+      if (event.data?.type === 'assembly-ready' && event.source === this.associationWindow)
+        event.source.postMessage({type: 'component-draft', model: clone(this.model)}, location.origin);
+      if (event.data?.type === 'edit-model' && event.source === window.opener) {
+        try {
+          this.loadModel(event.data.model);
+          this.componentTarget = {source: event.source, key: event.data.componentKey};
+          $('associate-model').textContent = 'Atualizar associação';
+          this.toast('Edite o componente e clique em Atualizar associação para aplicar às suas instâncias.');
+        } catch (error) { this.toast(error.message); }
+      }
+    });
     document.querySelectorAll('[data-pane]').forEach(button => button.addEventListener('click', () => {
       document.querySelectorAll('[data-pane]').forEach(b => { const active = b === button; b.setAttribute('aria-selected', String(active)); $('pane-' + b.dataset.pane).hidden = !active; });
     }));
